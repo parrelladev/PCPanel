@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>PCPanel</title>
+    <link rel="stylesheet" href="/css/app.css">
+  </head>
+  <body>
+    <main class="panel">
+      <header class="panel__header">
+        <div>
+          <p class="eyebrow">PCPanel</p>
+          <h1>Hardware telemetry</h1>
+        </div>
+        <div class="connection" aria-live="polite">
+          <span id="connection-dot" class="connection__dot"></span>
+          <span id="connection-status">Connecting</span>
+        </div>
+      </header>
+
+      <section class="metrics" aria-label="Hardware metrics">
+        <article class="card">
+          <h2>CPU</h2>
+          <dl>
+            <div>
+              <dt>Temperatura</dt>
+              <dd id="cpu-temperature">--</dd>
+            </div>
+            <div>
+              <dt>Uso</dt>
+              <dd id="cpu-load">--</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="card">
+          <h2>GPU</h2>
+          <dl>
+            <div>
+              <dt>Temperatura</dt>
+              <dd id="gpu-temperature">--</dd>
+            </div>
+            <div>
+              <dt>Uso</dt>
+              <dd id="gpu-load">--</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="card">
+          <h2>RAM</h2>
+          <dl>
+            <div>
+              <dt>Uso</dt>
+              <dd id="ram-load">--</dd>
+            </div>
+          </dl>
+        </article>
+      </section>
+    </main>
+
+    <script src="/js/app.js" defer></script>
+  </body>
+</html>
