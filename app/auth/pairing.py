@@ -140,11 +140,13 @@ class PairingService:
                 authorized_at=now,
             )
             token = self._tokens.generate_device_token()
-            self._registry.register(device, token)
             self._sessions[pairing_id] = replace(
                 session,
                 status=PairingStatus.CONSUMED,
             )
+            # A valid code is single-use even if durable registration fails.
+            # The registry only returns after its store transaction commits.
+            self._registry.register(device, token)
             return IssuedDeviceToken(device_id=device.id, token=token)
 
     def get_session(self, pairing_id: UUID) -> PairingSession:
@@ -172,4 +174,3 @@ class PairingService:
         ]
         for pairing_id in expired_ids:
             del self._sessions[pairing_id]
-

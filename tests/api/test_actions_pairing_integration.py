@@ -6,8 +6,9 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from app.actions import ActionRegistry, ActionService
-from app.actions.composition import NOTEPAD_ACTION
+from pathlib import Path
+
+from app.actions import ActionDefinition, ActionRegistry, ActionService
 from app.api.app import create_app
 from app.auth import DeviceRegistry, PairingService
 from app.telemetry.manager import TelemetryStatus
@@ -16,6 +17,11 @@ from tests.auth.fakes import FakePairingCodePresenter
 
 
 NOW = datetime(2026, 8, 10, 19, 0, tzinfo=timezone.utc)
+NOTEPAD_ACTION = ActionDefinition(
+    id="notepad",
+    label="Notepad",
+    executable=Path(r"C:\Windows\System32\notepad.exe"),
+)
 
 
 class StubTelemetryManager:

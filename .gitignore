@@ -7,6 +7,9 @@ venv/
 .pytest_cache/
 .coverage
 
+# Local PCPanel runtime data (including data/pcpanel.db)
+data/
+
 .vscode/
 .idea/
 

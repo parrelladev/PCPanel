@@ -15,6 +15,7 @@ class AppSettings:
     host: str = "0.0.0.0"
     port: int = 8000
     enable_actions_api: bool = False
+    data_dir: Path = Path("data")
 
     def __post_init__(self) -> None:
         if (
@@ -33,6 +34,9 @@ class AppSettings:
 
         if not isinstance(self.enable_actions_api, bool):
             raise TypeError("enable_actions_api must be a bool")
+
+        if not isinstance(self.data_dir, Path):
+            raise TypeError("data_dir must be a pathlib.Path")
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -63,13 +67,26 @@ class AppSettings:
             default=False,
         )
 
+        data_dir = cls._parse_data_dir(os.environ.get("PCPANEL_DATA_DIR"))
+
         return cls(
             lhm_dll_path=dll_path,
             telemetry_interval=telemetry_interval,
             host=host,
             port=port,
             enable_actions_api=enable_actions_api,
+            data_dir=data_dir,
         )
+
+    @staticmethod
+    def _parse_data_dir(value: str | None) -> Path:
+        if value is None:
+            return Path("data")
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("PCPANEL_DATA_DIR must not be empty")
+        return Path(normalized).expanduser()
 
     @staticmethod
     def _parse_bool(name: str, value: str | None, *, default: bool) -> bool:

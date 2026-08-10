@@ -13,6 +13,7 @@ ENVIRONMENT_VARIABLES = (
     "PCPANEL_HOST",
     "PCPANEL_PORT",
     "PCPANEL_ENABLE_ACTIONS_API",
+    "PCPANEL_DATA_DIR",
 )
 
 
@@ -32,6 +33,7 @@ def test_from_env_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         host="0.0.0.0",
         port=8000,
         enable_actions_api=False,
+        data_dir=Path("data"),
     )
 
 
@@ -49,6 +51,55 @@ def test_from_env_parses_valid_values(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.host == "192.168.1.10"
     assert settings.port == 9000
     assert settings.enable_actions_api is False
+    assert settings.data_dir == Path("data")
+
+
+def test_from_env_uses_default_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_settings_environment(monkeypatch)
+
+    settings = AppSettings.from_env()
+
+    assert settings.data_dir == Path("data")
+    assert not settings.data_dir.is_absolute()
+    assert settings.data_dir / "pcpanel.db" == Path("data/pcpanel.db")
+
+
+def test_from_env_parses_custom_relative_data_dir(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setenv("PCPANEL_DATA_DIR", "./runtime/local-data")
+
+    settings = AppSettings.from_env()
+
+    assert isinstance(settings.data_dir, Path)
+    assert settings.data_dir == Path("runtime/local-data")
+    assert not settings.data_dir.is_absolute()
+
+
+def test_from_env_preserves_absolute_data_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    absolute_data_dir = tmp_path / "pcpanel-data"
+    monkeypatch.setenv("PCPANEL_DATA_DIR", str(absolute_data_dir))
+
+    settings = AppSettings.from_env()
+
+    assert settings.data_dir == absolute_data_dir
+    assert settings.data_dir.is_absolute()
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_from_env_rejects_empty_data_dir(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setenv("PCPANEL_DATA_DIR", value)
+
+    with pytest.raises(ValueError, match="PCPANEL_DATA_DIR must not be empty"):
+        AppSettings.from_env()
 
 
 @pytest.mark.parametrize("value", ["true", "TRUE", " True "])

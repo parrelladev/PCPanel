@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Iterable
 
 from app.actions.executor import ActionExecutor
 from app.actions.models import ActionDefinition
@@ -8,20 +8,13 @@ from app.actions.registry import ActionRegistry
 from app.actions.service import ActionService
 from app.actions.windows import WindowsProcessExecutor
 
-
-NOTEPAD_ACTION = ActionDefinition(
-    id="notepad",
-    label="Notepad",
-    executable=Path(r"C:\Windows\System32\notepad.exe"),
-)
-
-
 def create_action_service(
     *,
+    actions: Iterable[ActionDefinition] = (),
     executor: ActionExecutor | None = None,
 ) -> ActionService:
-    """Compose the shared Actions runtime from server-owned definitions."""
+    """Compose the Actions runtime from explicitly supplied definitions."""
 
-    registry = ActionRegistry((NOTEPAD_ACTION,))
+    registry = ActionRegistry(actions)
     process_executor = executor or WindowsProcessExecutor()
     return ActionService(registry, process_executor)

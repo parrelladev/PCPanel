@@ -2,7 +2,7 @@
 
 PCPanel é uma aplicação Windows para coletar telemetria de hardware, transformá-la em métricas estáveis do produto e disponibilizá-la por HTTP e WebSocket a um painel acessível pelo navegador.
 
-O projeto está em fase de prova de conceito. A cadeia de telemetria, métricas canônicas, API read-only, WebSockets, frontend mínimo, pairing e autorização estão implementados. O Milestone 7 conecta o Actions Core à API HTTP por uma fronteira autenticada e opt-in.
+O projeto está em fase de prova de conceito. A cadeia de telemetria, métricas canônicas, API read-only, WebSockets, frontend mínimo, pairing, autorização e configuração persistente estão implementados. O Milestone 8 adiciona persistência local versionada para Devices e Actions sem acoplar os domínios ao SQLite.
 
 ## Estado atual
 
@@ -24,11 +24,14 @@ Já estão implementados:
 - pairing de dispositivos com confirmação do código no console local;
 - tokens bearer opacos para identidade de dispositivos autorizados;
 - autenticação HTTP que transforma um bearer token válido em uma identidade sanitizada;
-- registry de dispositivos e sessões de pairing mantidos somente em memória;
+- registry de dispositivos reconstruído do SQLite no startup, com sessões de pairing mantidas somente em memória;
 - Actions API protegida por bearer token e desabilitada por padrão;
-- catálogo e execução remota limitados às ações explicitamente registradas no servidor.
+- catálogo e execução remota limitados às Actions persistidas e habilitadas no servidor;
+- banco SQLite local versionado para Devices, hashes de tokens e configuração de Actions.
 
-O composition root registra somente `notepad` como ação inicial de validação/MVP. Steam, Discord, Chrome, OBS e discovery automático não estão implementados.
+O composition root carrega do SQLite somente as Actions persistidas com `enabled=true`. Um banco vazio produz um catálogo vazio; discovery automático não está implementado.
+
+Nenhuma Action é criada automaticamente no startup. Para adicionar explicitamente o exemplo local de desenvolvimento em um banco que ainda não contenha o ID `notepad`, execute `python scripts/seed_actions.py --data-dir .\data`. O script não sobrescreve uma configuração existente e não é chamado pela aplicação.
 
 Pairing e autenticação não tornam o transporte confidencial. O ambiente atual continua sendo uma POC para desenvolvimento/LAN e não implementa HTTPS/TLS: um bearer token enviado por HTTP pode ser observado por alguém com acesso ao caminho de rede.
 
@@ -97,7 +100,7 @@ PCPanel
 
 - `PairingSession` é uma tentativa temporária; não é um `Device` pendente.
 - Um `Device` nasce somente depois da conclusão válida e single-use do pairing.
-- `DeviceRegistry` e `PairingService` usam locks explícitos e mantêm estado somente em memória.
+- `DeviceRegistry` e `PairingService` usam locks explícitos; o registry é reconstruído do store no startup, enquanto sessões de pairing permanecem somente em memória.
 - `PairingCodePresenter` estabelece o segundo canal local; `pairing/start` nunca devolve o código.
 - A dependency bearer retorna um `AuthorizedDevice` sanitizado e não expõe tokens ou hashes.
 
@@ -251,6 +254,7 @@ Use os binários oficiais do projeto LibreHardwareMonitor e mantenha ao lado da 
 | `PCPANEL_HOST` | Endereço em que o servidor escuta | `0.0.0.0` |
 | `PCPANEL_PORT` | Porta HTTP | `8000` |
 | `PCPANEL_ENABLE_ACTIONS_API` | Registra a Actions API protegida | `false` |
+| `PCPANEL_DATA_DIR` | Diretório do banco e dos dados locais do PCPanel | `./data` |
 
 Exemplo:
 
@@ -258,6 +262,7 @@ Exemplo:
 $env:PCPANEL_TELEMETRY_INTERVAL = "0.5"
 $env:PCPANEL_HOST = "0.0.0.0"
 $env:PCPANEL_PORT = "8000"
+$env:PCPANEL_DATA_DIR = ".\data"
 python -m app.main
 ```
 
@@ -270,7 +275,50 @@ python -m app.main
 
 A flag aceita somente `true` ou `false` (sem diferenciar maiúsculas/minúsculas e ignorando espaços externos). Habilitá-la não substitui autenticação: para usar Actions, o dispositivo também precisa concluir o pairing e enviar um bearer token válido.
 
-O intervalo deve ser finito e maior que zero, a porta deve estar entre 1 e 65535 e o host não pode ser vazio.
+`PCPANEL_DATA_DIR` é convertido com `pathlib.Path`. Caminhos relativos permanecem relativos ao diretório de execução, caminhos absolutos são preservados e valor vazio ou composto somente por espaços é rejeitado. O intervalo deve ser finito e maior que zero, a porta deve estar entre 1 e 65535 e o host não pode ser vazio.
+
+## Persistência local
+
+PCPanel usa SQLite local através do módulo `sqlite3` da standard library, sem ORM, connection pool ou dependência externa de banco. O arquivo fica em:
+
+```text
+<data_dir>/pcpanel.db
+```
+
+Com o default real de `AppSettings`, isso corresponde a `./data/pcpanel.db`. O diretório é criado na inicialização quando necessário e `data/` é ignorado pelo Git.
+
+O schema usa `PRAGMA user_version` como versão oficial. Bancos novos recebem o schema atual e sua versão; bancos em versões antigas suportadas percorrem migrations incrementais. Um `user_version` maior que o suportado interrompe claramente o startup, sem downgrade silencioso. Migrations e operações de escrita usam transações com commit ou rollback.
+
+Cada operação abre uma nova `sqlite3.Connection`, executa o trabalho e fecha a conexão. Não existe Connection ou Cursor global compartilhado entre requests ou threads. Stores concentram SQL; `DeviceRegistry`, `PairingService`, `ActionRegistry`, `ActionService` e os modelos de domínio não executam SQL.
+
+### Devices persistidos
+
+A tabela `devices` persiste `device_id`, nome, status, timestamps e somente `token_hash`. Depois de um pairing concluído e confirmado no banco:
+
+- o Device autorizado sobrevive ao restart;
+- o bearer token já emitido continua válido após a reconstrução do `DeviceRegistry`;
+- um Device revogado permanece revogado e o token antigo continua sendo rejeitado.
+
+O token plaintext não é gravado. Ele é devolvido uma única vez por `pairing/complete`; o servidor persiste apenas seu hash.
+
+### Pairing efêmero
+
+`PairingSession`, `PairingChallenge`, pairing code e contador de tentativas não são persistidos. Reiniciar durante um pairing cancela a tentativa: o `pairing_id` antigo deixa de existir e um novo pairing deve ser iniciado.
+
+### Actions persistidas
+
+A tabela `actions` persiste:
+
+- `id`;
+- `label`;
+- `executable`;
+- `arguments_json`;
+- `working_directory`;
+- `enabled`.
+
+`arguments_json` é um array JSON de strings, não uma command line. No load, o store exige um array cujos itens sejam strings, converte-o para `tuple[str, ...]` e constrói uma `ActionDefinition` normal, reaplicando as invariantes do domínio. Apenas registros com `enabled=true` entram no `ActionRegistry`; registros desabilitados continuam no banco.
+
+Um banco novo possui catálogo vazio. Nenhuma Action, inclusive Notepad, é inserida automaticamente no startup. O seed de desenvolvimento é exclusivamente local e explícito através de `python scripts/seed_actions.py --data-dir .\data`; remover a Action e apenas reiniciar a aplicação não a recria.
 
 ## Executando
 
@@ -325,6 +373,8 @@ Disponível somente quando `PCPANEL_ENABLE_ACTIONS_API=true` e exige `Authorizat
 ```
 
 O contrato não inclui `executable`, `arguments` ou `working_directory`.
+
+Essa API lista configuração persistida, mas não oferece CRUD remoto. Não existem `POST /api/v1/actions` para cadastro, `PUT /api/v1/actions/{id}` ou `DELETE /api/v1/actions/{id}`.
 
 ### `POST /api/v1/actions/{action_id}/execute`
 
@@ -555,7 +605,7 @@ ActionRegistry
 WindowsProcessExecutor
 ```
 
-`ActionRegistry` funciona como whitelist. A API não acessa o registry ou o executor diretamente, e `ActionService` continua independente de Auth e FastAPI. A única ação configurada pelo composition root nesta fase é `notepad`, apontando para `C:\Windows\System32\notepad.exe`; ela é uma ação explícita de validação/MVP, não resultado de discovery.
+`ActionRegistry` funciona como whitelist. A API não acessa o registry ou o executor diretamente, e `ActionService` continua independente de Auth e FastAPI. O composition root reconstrói essa whitelist a partir das Actions habilitadas persistidas no SQLite; nenhuma Action é injetada incondicionalmente.
 
 ## Teste manual local de Actions
 
@@ -640,6 +690,8 @@ Actions possui testes para:
 - trust boundary com inputs arbitrários e IDs hostis;
 - fluxo integrado pairing → bearer → Actions API → `FakeActionExecutor`.
 
+A suíte de persistência cobre criação e versionamento do schema, rollback de migrations e writes, corrupção controlada, concorrência e restart real. Ela reconstrói novas instâncias de Database, stores, registries e services sobre o mesmo arquivo para provar autenticação, revogação e Actions após reinício, sem reutilizar caches da primeira instância.
+
 `subprocess.Popen` é substituído nos testes do adapter; a suíte não abre programas reais.
 
 Se `.pytest_cache` não puder ser gravado no ambiente local, o cache pode ser desativado:
@@ -655,14 +707,14 @@ O Milestone 6 implementa identidade de dispositivos sem JWT, OAuth, usuários/se
 - `DeviceRegistry` é thread-safe e mantém em memória `Device` e somente hashes SHA-256 das credenciais;
 - tokens são segredos opacos gerados com 32 bytes aleatórios por `secrets.token_urlsafe`, aproximadamente 256 bits de entropia antes da codificação;
 - token plaintext existe apenas na emissão, na resposta única de `pairing/complete` e no header enviado posteriormente pelo cliente;
-- pairing codes possuem exatamente 6 dígitos, são gerados com `secrets`, armazenados somente como hash e comparados com `hmac.compare_digest`;
+- pairing codes possuem exatamente 6 dígitos, são gerados com `secrets`, mantidos somente como hash na `PairingSession` em memória e comparados com `hmac.compare_digest`;
 - sessões usam TTL de 5 minutos, 5 tentativas e limite de 10 pairings pendentes por default;
 - verificação de capacidade, decremento de tentativas e conclusão são protegidos por sincronização explícita;
 - cada pairing é single-use, inclusive diante de replay concorrente;
 - o código plaintext existe temporariamente em `PairingChallenge` e é mostrado somente pelo presenter local, nunca pela resposta de `pairing/start` ou por logging normal;
 - `HTTPBearer(auto_error=False)` mantém semântica uniforme de `401` para credenciais ausentes ou inválidas.
 
-`DeviceRegistry` e `PairingService` são in-memory. Reiniciar o processo apaga dispositivos, hashes e sessões; tokens antigos deixam de funcionar e um novo pairing é obrigatório. Não há persistência em arquivo, SQLite, keyring ou banco externo.
+`DeviceRegistry` mantém índices e autenticação em memória durante a execução, mas Devices e hashes são persistidos pelo `SQLiteDeviceStore`. No startup, uma nova instância do registry reconstrói os índices por `device_id` e `token_hash`; tokens existentes continuam válidos. `PairingService` e suas sessões continuam estritamente in-memory, portanto um pairing incompleto é cancelado pelo restart.
 
 As rotas públicas/read-only continuam sendo `health`, `telemetry`, `sensors`, `metrics` e os WebSockets de telemetry e metrics.
 
@@ -684,6 +736,8 @@ Auth decide se o cliente pode alcançar a operação; Actions decide se o ID exi
 
 O bearer token é uma credencial sensível. HTTP sem TLS não oferece confidencialidade contra um observador on-path: o ambiente atual é destinado a desenvolvimento/LAN e HTTPS/TLS completo não foi implementado no M6. Use uma rede confiável e limite o bind a `127.0.0.1` quando acesso remoto não for necessário.
 
+O arquivo `pcpanel.db` não contém tokens bearer plaintext, pairing codes, `PairingSession` ou `PairingChallenge`; contém hashes de tokens, identidade e status de Devices, timestamps e configuração de Actions. Executáveis, argumentos estruturados e working directories podem revelar informações do host. Por isso o banco, suas cópias e backups continuam sendo dados sensíveis, mesmo sem expor diretamente o bearer plaintext.
+
 ## Limitações atuais
 
 - suporte focado em Windows e no runtime `netfx`;
@@ -691,22 +745,21 @@ O bearer token é uma credencial sensível. HTTP sem TLS não oferece confidenci
 - determinados sensores podem depender de drivers, mecanismos de acesso ou privilégios adicionais;
 - conjunto canônico garantido limitado às cinco métricas principais listadas acima;
 - frontend ainda é uma POC;
-- autenticação e pairing são voláteis e exigem novo pairing após cada reinício;
+- sessões de pairing são voláteis e um pairing incompleto precisa ser reiniciado após restart;
 - ausência de HTTPS/TLS integrado para proteger bearer tokens no transporte;
 - Actions API desabilitada por padrão e dependente de opt-in explícito;
-- registry de Actions in-memory e estático, composto novamente a cada inicialização;
-- somente ações configuradas no composition root são disponibilizadas;
-- catálogo sem persistência, configuração persistente ou discovery automático;
-- apenas `notepad` está configurado como ação de validação/MVP;
+- não existe CRUD HTTP para cadastrar, alterar ou remover Actions;
+- não existe discovery automático de programas;
+- `PCPANEL_DATA_DIR` ainda não resolve automaticamente `%LOCALAPPDATA%`/`%PROGRAMDATA%` nem integração com installer;
 - não existe launcher de produção, PWA ou instalador.
 
 ## Roadmap
 
 - **Milestone 5 — Actions Core:** concluído como domínio interno/local, sem API.
-- **Milestone 6 — Pairing & Authorization:** concluído, com estado in-memory e sem TLS integrado.
+- **Milestone 6 — Pairing & Authorization:** concluído; sessões de pairing continuam in-memory e TLS não está integrado.
 - **Milestone 7 — Authorized Actions API:** concluído, com feature flag opt-in, catálogo e execução protegidos por bearer token.
-- **Milestone 8 — Persistent Configuration:** próximo milestone; configuração persistente do produto e das ações.
+- **Milestone 8 — Persistent Configuration:** concluído, com SQLite versionado, Devices e Actions persistentes e reconstrução dos registries no startup.
 - **Milestone 9 — Product UI:** evolução da interface além da POC atual.
 - **Milestone 10 — Packaging / PWA:** distribuição e experiência instalável.
 
-Configuração persistente, discovery de programas, Steam discovery, shutdown/restart, volume, scripts customizados, Vue, PWA e installer não são funcionalidades implementadas atualmente. O M8 ainda não está implementado.
+Discovery de programas, Steam discovery, shutdown/restart como Action, volume, scripts customizados, Vue, PWA e installer não são funcionalidades implementadas atualmente.
