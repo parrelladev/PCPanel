@@ -12,6 +12,7 @@ ENVIRONMENT_VARIABLES = (
     "PCPANEL_TELEMETRY_INTERVAL",
     "PCPANEL_HOST",
     "PCPANEL_PORT",
+    "PCPANEL_ENABLE_ACTIONS_API",
 )
 
 
@@ -30,6 +31,7 @@ def test_from_env_uses_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         telemetry_interval=0.5,
         host="0.0.0.0",
         port=8000,
+        enable_actions_api=False,
     )
 
 
@@ -46,6 +48,44 @@ def test_from_env_parses_valid_values(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.telemetry_interval == 1.25
     assert settings.host == "192.168.1.10"
     assert settings.port == 9000
+    assert settings.enable_actions_api is False
+
+
+@pytest.mark.parametrize("value", ["true", "TRUE", " True "])
+def test_from_env_enables_actions_api_case_insensitively(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setenv("PCPANEL_ENABLE_ACTIONS_API", value)
+
+    assert AppSettings.from_env().enable_actions_api is True
+
+
+@pytest.mark.parametrize("value", ["false", "FALSE", " False "])
+def test_from_env_disables_actions_api_case_insensitively(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setenv("PCPANEL_ENABLE_ACTIONS_API", value)
+
+    assert AppSettings.from_env().enable_actions_api is False
+
+
+@pytest.mark.parametrize("value", ["", "1", "yes", "enabled", "invalid"])
+def test_from_env_rejects_invalid_actions_api_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setenv("PCPANEL_ENABLE_ACTIONS_API", value)
+
+    with pytest.raises(
+        ValueError,
+        match="PCPANEL_ENABLE_ACTIONS_API.*'true'.*'false'",
+    ):
+        AppSettings.from_env()
 
 
 @pytest.mark.parametrize("value", ["0", "-0.1", "invalid", "nan", "inf"])

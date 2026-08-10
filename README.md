@@ -2,7 +2,7 @@
 
 PCPanel é uma aplicação Windows para coletar telemetria de hardware, transformá-la em métricas estáveis do produto e disponibilizá-la por HTTP e WebSocket a um painel acessível pelo navegador.
 
-O projeto está em fase de prova de conceito. A cadeia de telemetria, métricas canônicas, API read-only, WebSockets, frontend mínimo e o Milestone 6 de pairing e autorização estão implementados. O domínio interno de Actions também existe e pode iniciar ações locais explicitamente registradas, mas ainda não está conectado à API HTTP.
+O projeto está em fase de prova de conceito. A cadeia de telemetria, métricas canônicas, API read-only, WebSockets, frontend mínimo, pairing e autorização estão implementados. O Milestone 7 conecta o Actions Core à API HTTP por uma fronteira autenticada e opt-in.
 
 ## Estado atual
 
@@ -24,15 +24,17 @@ Já estão implementados:
 - pairing de dispositivos com confirmação do código no console local;
 - tokens bearer opacos para identidade de dispositivos autorizados;
 - autenticação HTTP que transforma um bearer token válido em uma identidade sanitizada;
-- registry de dispositivos e sessões de pairing mantidos somente em memória.
+- registry de dispositivos e sessões de pairing mantidos somente em memória;
+- Actions API protegida por bearer token e desabilitada por padrão;
+- catálogo e execução remota limitados às ações explicitamente registradas no servidor.
 
-Actions é, neste momento, uma funcionalidade interna/local. O navegador não inicia aplicações e não existe endpoint HTTP para execução de ações.
+O composition root registra somente `notepad` como ação inicial de validação/MVP. Steam, Discord, Chrome, OBS e discovery automático não estão implementados.
 
 Pairing e autenticação não tornam o transporte confidencial. O ambiente atual continua sendo uma POC para desenvolvimento/LAN e não implementa HTTPS/TLS: um bearer token enviado por HTTP pode ser observado por alguém com acesso ao caminho de rede.
 
 ## Arquitetura
 
-As três áreas de domínio permanecem separadas, e a composição FastAPI conecta somente Telemetry e Auth à rede:
+As três áreas de domínio permanecem separadas. FastAPI aplica Auth na fronteira HTTP antes de encaminhar um `action_id` ao domínio Actions:
 
 ```text
 PCPanel
@@ -63,8 +65,13 @@ PCPanel
 │           ↓
 │   HTTPBearer → AuthorizedDevice
 │
-└── Actions (interno/local, sem rota HTTP)
-    ActionDefinition
+└── Actions API (opt-in)
+    AuthorizedDevice
+            ↓
+    GET /api/v1/actions
+    POST /api/v1/actions/{action_id}/execute
+            ↓
+    ActionDefinition (preexistente no servidor)
             ↓
     ActionRegistry
             ↓
@@ -103,7 +110,8 @@ PCPanel
 - `WindowsProcessExecutor` é o único componente de Actions que conhece `subprocess`.
 - A criação de processos usa `shell=False`.
 - Não existe fallback de ID para path, command line ou shell command.
-- Actions ainda não está conectado à camada HTTP.
+- Auth permanece na fronteira HTTP; `ActionService` não recebe device, token ou tipos FastAPI.
+- O router HTTP de Actions só é registrado quando `PCPANEL_ENABLE_ACTIONS_API=true`.
 
 ## Estrutura do projeto
 
@@ -124,6 +132,7 @@ PCPanel/
 │   │       └── librehardwaremonitor.py
 │   ├── api/
 │   │   ├── __init__.py
+│   │   ├── actions.py
 │   │   ├── app.py
 │   │   ├── dependencies.py
 │   │   ├── metric_contract.py
@@ -140,6 +149,7 @@ PCPanel/
 │   │   └── tokens.py
 │   └── actions/
 │       ├── __init__.py
+│       ├── composition.py
 │       ├── errors.py
 │       ├── executor.py
 │       ├── models.py
@@ -240,6 +250,7 @@ Use os binários oficiais do projeto LibreHardwareMonitor e mantenha ao lado da 
 | `PCPANEL_TELEMETRY_INTERVAL` | Intervalo de coleta em segundos | `0.5` |
 | `PCPANEL_HOST` | Endereço em que o servidor escuta | `0.0.0.0` |
 | `PCPANEL_PORT` | Porta HTTP | `8000` |
+| `PCPANEL_ENABLE_ACTIONS_API` | Registra a Actions API protegida | `false` |
 
 Exemplo:
 
@@ -249,6 +260,15 @@ $env:PCPANEL_HOST = "0.0.0.0"
 $env:PCPANEL_PORT = "8000"
 python -m app.main
 ```
+
+Actions é opt-in. Para habilitar suas rotas durante desenvolvimento controlado:
+
+```powershell
+$env:PCPANEL_ENABLE_ACTIONS_API = "true"
+python -m app.main
+```
+
+A flag aceita somente `true` ou `false` (sem diferenciar maiúsculas/minúsculas e ignorando espaços externos). Habilitá-la não substitui autenticação: para usar Actions, o dispositivo também precisa concluir o pairing e enviar um bearer token válido.
 
 O intervalo deve ser finito e maior que zero, a porta deve estar entre 1 e 65535 e o host não pode ser vazio.
 
@@ -273,7 +293,7 @@ O default `0.0.0.0` permite que o servidor aceite conexões locais e, quando a r
 
 ## Endpoints HTTP
 
-Os endpoints de telemetria permanecem públicos e read-only. Os endpoints de pairing criam identidade de dispositivo, e `/api/v1/auth/status` exige autenticação bearer. Actions continua sem qualquer endpoint HTTP.
+Os endpoints de telemetria permanecem públicos e read-only. Os endpoints de pairing criam identidade de dispositivo. `/api/v1/auth/status` e as duas rotas de Actions exigem autenticação bearer.
 
 ### `POST /api/v1/pairing/start`
 
@@ -288,6 +308,37 @@ Recebe `pairing_id` e o código obtido pelo segundo canal/local. Em caso de suce
 ### `GET /api/v1/auth/status`
 
 Exige `Authorization: Bearer <token>` e retorna apenas a identidade sanitizada do dispositivo (`id` e `name`). Ausência de credencial, token inválido, token revogado, scheme inadequado ou bearer malformado retornam `401 Unauthorized` com `WWW-Authenticate: Bearer`.
+
+### `GET /api/v1/actions`
+
+Disponível somente quando `PCPANEL_ENABLE_ACTIONS_API=true` e exige `Authorization: Bearer <token>`. Retorna o catálogo na ordem do registry, contendo apenas metadata pública segura:
+
+```json
+{
+  "actions": [
+    {
+      "id": "notepad",
+      "label": "Notepad"
+    }
+  ]
+}
+```
+
+O contrato não inclui `executable`, `arguments` ou `working_directory`.
+
+### `POST /api/v1/actions/{action_id}/execute`
+
+Disponível sob as mesmas condições e não possui request body. A única entrada remota de execução é o `action_id` do path:
+
+```powershell
+$headers = @{ Authorization = "Bearer SEU_TOKEN" }
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8000/api/v1/actions/notepad/execute" `
+  -Headers $headers
+```
+
+O cliente não fornece executável, argumentos, diretório de trabalho, command line ou opção de shell. Em sucesso, a resposta contém somente `action_id` e `started`. A fronteira HTTP mapeia ação desconhecida para `404 Not Found`, ação registrada mas indisponível para `409 Conflict` e falha de inicialização para `500 Internal Server Error`, sempre com mensagens públicas sanitizadas.
 
 ### `GET /api/v1/health`
 
@@ -363,7 +414,7 @@ Retorna o contrato canônico destinado ao produto e à UI:
 
 Enquanto não houver snapshot raw, os endpoints que dependem dele retornam `503 Service Unavailable`.
 
-> **Actions não possui API neste milestone.** Não existe `POST /api/v1/actions/{id}` nem rota equivalente capaz de iniciar processos. O M6 fornece identidade e autorização na aplicação, mas a conexão de Actions ao HTTP pertence ao M7 e não foi implementada.
+Com `PCPANEL_ENABLE_ACTIONS_API=false` — o default — o router de Actions não é registrado e essas rotas retornam `404`.
 
 ## WebSockets
 
@@ -398,7 +449,7 @@ Essa interface valida a cadeia backend → browser; não é a interface final do
 
 ## Actions Core
 
-O Milestone 5 implementa o domínio interno de ações sem expor execução pela rede.
+O Milestone 5 implementou o domínio interno de ações; o Milestone 7 o conecta à rede somente através da API autenticada e opt-in.
 
 ### ActionDefinition
 
@@ -442,7 +493,7 @@ Quando um ID não existe, `get()` lança `ActionNotFoundError`. O texto desconhe
 
 ### ActionService
 
-`ActionService` é a interface de orquestração que uma futura camada externa deverá usar:
+`ActionService` é a interface de orquestração usada pela camada HTTP:
 
 ```text
 ActionService.execute(action_id)
@@ -486,7 +537,25 @@ Não é construída uma command line única. O pacote Actions não usa `os.syste
 - `ActionUnavailableError`: a ação existe, mas seu executável ou diretório de trabalho não está disponível neste computador.
 - `ActionExecutionError`: houve falha ao iniciar a ação.
 
-Esses erros pertencem ao domínio e não dependem de FastAPI ou status HTTP. Uma futura Actions API poderá mapeá-los, mas esse mapeamento e as rotas de execução ainda não existem.
+Esses erros pertencem ao domínio e não dependem de FastAPI ou status HTTP. A camada API os mapeia respectivamente para `404`, `409` e `500`, sem expor paths, argumentos, `OSError` ou detalhes do filesystem.
+
+### Authorized Actions API
+
+O fluxo implementado é:
+
+```text
+AuthorizedDevice
+       ↓
+Actions API
+       ↓
+ActionService.execute(action_id)
+       ↓
+ActionRegistry
+       ↓
+WindowsProcessExecutor
+```
+
+`ActionRegistry` funciona como whitelist. A API não acessa o registry ou o executor diretamente, e `ActionService` continua independente de Auth e FastAPI. A única ação configurada pelo composition root nesta fase é `notepad`, apontando para `C:\Windows\System32\notepad.exe`; ela é uma ação explícita de validação/MVP, não resultado de discovery.
 
 ## Teste manual local de Actions
 
@@ -528,7 +597,7 @@ O servidor usa `0.0.0.0` como host padrão. Para acessá-lo de outro dispositivo
 
 Se não funcionar, verifique firewall, rede, isolamento de clientes, porta utilizada e se `PCPANEL_HOST` não foi configurado como `127.0.0.1`.
 
-O bind para LAN existe no código, mas o acesso depende da configuração local. A API disponível pela LAN continua limitada a telemetria read-only; Actions não está conectado a ela.
+O bind para LAN existe no código, mas o acesso depende da configuração local. Telemetria read-only permanece pública. Actions só fica disponível com opt-in explícito e bearer token de dispositivo pareado; HTTP sem TLS ainda permite que um observador on-path veja essa credencial.
 
 ## Diagnóstico de sensores
 
@@ -566,7 +635,10 @@ Actions possui testes para:
 - preservação de argumentos estruturados;
 - construção de `argv`, `working_directory`/`cwd` e `shell=False`;
 - executável indisponível e falhas de `Popen`;
-- checks estáticos contra padrões de execução por shell e contra uma assinatura pública baseada em command line.
+- checks estáticos contra padrões de execução por shell e contra uma assinatura pública baseada em command line;
+- autenticação, revogação, feature flag e schemas sanitizados da Actions API;
+- trust boundary com inputs arbitrários e IDs hostis;
+- fluxo integrado pairing → bearer → Actions API → `FakeActionExecutor`.
 
 `subprocess.Popen` é substituído nos testes do adapter; a suíte não abre programas reais.
 
@@ -598,16 +670,17 @@ As rotas públicas/read-only continuam sendo `health`, `telemetry`, `sensors`, `
 
 O projeto possui pairing, identidade e autorização na aplicação, mas não deve ser descrito como seguro de forma absoluta.
 
-Telemetry possui uma interface de rede read-only. A API e os WebSockets leem snapshots mantidos em memória e não iniciam coleta nem processos.
+Telemetry possui uma interface de rede pública e read-only. A API e os WebSockets leem snapshots mantidos em memória e não iniciam coleta nem processos.
 
-Actions possui capacidade local de iniciar processos, mas permanece desconectado da API. Sua fronteira atual combina:
+Actions pode iniciar processos através de duas rotas autenticadas quando a feature flag está habilitada. Sua fronteira combina:
 
 - `ActionRegistry` como whitelist de definições conhecidas;
 - execução solicitada por `action_id`, sem path ou command line externos;
 - executable e argumentos estruturados;
-- `shell=False` no adapter Windows.
+- `shell=False` no adapter Windows;
+- `require_authorized_device` na API antes de acessar `ActionService`.
 
-Conectar Actions ao FastAPI antes de pairing e autorização criaria uma superfície inadequada enquanto o servidor pode estar acessível pela LAN. Por isso, a integração HTTP foi deliberadamente adiada.
+Auth decide se o cliente pode alcançar a operação; Actions decide se o ID existe e pode ser executado. `AuthorizedDevice` não é passado ao `ActionService`.
 
 O bearer token é uma credencial sensível. HTTP sem TLS não oferece confidencialidade contra um observador on-path: o ambiente atual é destinado a desenvolvimento/LAN e HTTPS/TLS completo não foi implementado no M6. Use uma rede confiável e limite o bind a `127.0.0.1` quando acesso remoto não for necessário.
 
@@ -620,18 +693,20 @@ O bearer token é uma credencial sensível. HTTP sem TLS não oferece confidenci
 - frontend ainda é uma POC;
 - autenticação e pairing são voláteis e exigem novo pairing após cada reinício;
 - ausência de HTTPS/TLS integrado para proteger bearer tokens no transporte;
-- Actions não está exposto pela API;
-- ações não possuem configuração persistente nem discovery automático de programas;
-- apenas o script manual registra `notepad`; não existe catálogo de ações de produção;
+- Actions API desabilitada por padrão e dependente de opt-in explícito;
+- registry de Actions in-memory e estático, composto novamente a cada inicialização;
+- somente ações configuradas no composition root são disponibilizadas;
+- catálogo sem persistência, configuração persistente ou discovery automático;
+- apenas `notepad` está configurado como ação de validação/MVP;
 - não existe launcher de produção, PWA ou instalador.
 
 ## Roadmap
 
 - **Milestone 5 — Actions Core:** concluído como domínio interno/local, sem API.
 - **Milestone 6 — Pairing & Authorization:** concluído, com estado in-memory e sem TLS integrado.
-- **Milestone 7 — Actions API:** integração autorizada, conceitualmente `POST /api/v1/actions/{id}`, somente após o Milestone 6.
-- **Milestone 8 — Persistent Configuration:** configuração persistente do produto e das ações.
+- **Milestone 7 — Authorized Actions API:** concluído, com feature flag opt-in, catálogo e execução protegidos por bearer token.
+- **Milestone 8 — Persistent Configuration:** próximo milestone; configuração persistente do produto e das ações.
 - **Milestone 9 — Product UI:** evolução da interface além da POC atual.
 - **Milestone 10 — Packaging / PWA:** distribuição e experiência instalável.
 
-Actions API, configuração persistente, discovery de programas, Steam discovery, shutdown/restart, volume, scripts customizados, Vue, PWA e installer não são funcionalidades implementadas atualmente. O M7 não está implementado.
+Configuração persistente, discovery de programas, Steam discovery, shutdown/restart, volume, scripts customizados, Vue, PWA e installer não são funcionalidades implementadas atualmente. O M8 ainda não está implementado.

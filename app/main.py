@@ -3,6 +3,7 @@ from __future__ import annotations
 import uvicorn
 from fastapi import FastAPI
 
+from .actions.composition import create_action_service
 from .api.app import create_app
 from .config import AppSettings
 from .telemetry.manager import TelemetryManager
@@ -22,7 +23,12 @@ def build_app(settings: AppSettings | None = None) -> FastAPI:
         provider,
         interval=resolved_settings.telemetry_interval,
     )
-    return create_app(manager)
+    action_service = create_action_service()
+    return create_app(
+        manager,
+        action_service=action_service,
+        enable_actions_api=resolved_settings.enable_actions_api,
+    )
 
 
 def main() -> None:

@@ -21,9 +21,12 @@ def test_build_app_composes_runtime_without_starting_manager(monkeypatch) -> Non
     )
     provider_factory = Mock(return_value=provider)
     manager_factory = Mock(return_value=manager)
+    action_service = Mock()
+    action_service_factory = Mock(return_value=action_service)
     app_factory = Mock(return_value=application)
     monkeypatch.setattr("app.main.LibreHardwareMonitorProvider", provider_factory)
     monkeypatch.setattr("app.main.TelemetryManager", manager_factory)
+    monkeypatch.setattr("app.main.create_action_service", action_service_factory)
     monkeypatch.setattr("app.main.create_app", app_factory)
 
     result = build_app(settings)
@@ -31,7 +34,12 @@ def test_build_app_composes_runtime_without_starting_manager(monkeypatch) -> Non
     assert result is application
     provider_factory.assert_called_once_with(dll_path=None)
     manager_factory.assert_called_once_with(provider, interval=1.25)
-    app_factory.assert_called_once_with(manager)
+    action_service_factory.assert_called_once_with()
+    app_factory.assert_called_once_with(
+        manager,
+        action_service=action_service,
+        enable_actions_api=False,
+    )
     manager.start.assert_not_called()
 
 

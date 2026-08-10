@@ -14,6 +14,7 @@ class AppSettings:
     telemetry_interval: float = 0.5
     host: str = "0.0.0.0"
     port: int = 8000
+    enable_actions_api: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -29,6 +30,9 @@ class AppSettings:
 
         if not self.host.strip():
             raise ValueError("host must not be empty")
+
+        if not isinstance(self.enable_actions_api, bool):
+            raise TypeError("enable_actions_api must be a bool")
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -53,11 +57,34 @@ class AppSettings:
         port_value = os.environ.get("PCPANEL_PORT")
         port = cls._parse_int("PCPANEL_PORT", port_value, default=8000)
 
+        enable_actions_api = cls._parse_bool(
+            "PCPANEL_ENABLE_ACTIONS_API",
+            os.environ.get("PCPANEL_ENABLE_ACTIONS_API"),
+            default=False,
+        )
+
         return cls(
             lhm_dll_path=dll_path,
             telemetry_interval=telemetry_interval,
             host=host,
             port=port,
+            enable_actions_api=enable_actions_api,
+        )
+
+    @staticmethod
+    def _parse_bool(name: str, value: str | None, *, default: bool) -> bool:
+        """Parse case-insensitive ``true`` or ``false`` after trimming whitespace."""
+
+        if value is None:
+            return default
+
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+        raise ValueError(
+            f"{name} must be either 'true' or 'false'; received {value!r}"
         )
 
     @staticmethod

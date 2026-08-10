@@ -8,6 +8,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..actions.composition import create_action_service
+from ..actions.service import ActionService
 from ..auth import (
     ConsolePairingCodePresenter,
     DeviceRegistry,
@@ -16,6 +18,7 @@ from ..auth import (
     TokenService,
 )
 from ..telemetry.manager import TelemetryManager
+from .actions import router as actions_router
 from .routes import router
 from .websocket import router as websocket_router
 
@@ -26,13 +29,16 @@ WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
 def create_app(
     manager: TelemetryManager,
     *,
+    action_service: ActionService | None = None,
+    enable_actions_api: bool = False,
     token_service: TokenService | None = None,
     device_registry: DeviceRegistry | None = None,
     pairing_service: PairingService | None = None,
     pairing_code_presenter: PairingCodePresenter | None = None,
 ) -> FastAPI:
-    """Create the application around shared Telemetry and Auth services."""
+    """Create the application around shared Telemetry, Auth, and Actions services."""
 
+    actions = action_service or create_action_service()
     tokens = token_service or TokenService()
     registry = device_registry or DeviceRegistry()
     pairing = pairing_service or PairingService(registry, tokens)
@@ -49,12 +55,16 @@ def create_app(
 
     app = FastAPI(title="PCPanel API", lifespan=lifespan)
     app.state.telemetry_manager = manager
+    app.state.action_service = actions
+    app.state.enable_actions_api = enable_actions_api
     app.state.token_service = tokens
     app.state.device_registry = registry
     app.state.pairing_service = pairing
     app.state.pairing_code_presenter = presenter
     app.include_router(router)
     app.include_router(websocket_router)
+    if enable_actions_api:
+        app.include_router(actions_router)
     app.mount("/css", StaticFiles(directory=WEB_ROOT / "css"), name="css")
     app.mount("/js", StaticFiles(directory=WEB_ROOT / "js"), name="js")
 
