@@ -1,57 +1,86 @@
 # PCPanel
 
-PCPanel é uma aplicação Windows para coletar telemetria de hardware e disponibilizá-la por HTTP e WebSocket a um painel acessível pelo navegador.
+PCPanel é uma aplicação Windows para coletar telemetria de hardware, transformá-la em métricas estáveis do produto e disponibilizá-la por HTTP e WebSocket a um painel acessível pelo navegador.
 
-O projeto está atualmente em fase de prova de conceito. A cadeia de coleta, snapshots raw, métricas canônicas, API e frontend já funciona; launcher de aplicativos, autenticação, persistência, PWA e instalador ainda não fazem parte da aplicação.
+O projeto está em fase de prova de conceito. A cadeia de telemetria, métricas canônicas, API read-only, WebSockets e frontend mínimo está implementada. O domínio interno de Actions também existe e pode iniciar ações locais explicitamente registradas, mas ainda não está conectado à API HTTP.
 
 ## Estado atual
 
 Já estão implementados:
 
 - coleta por `LibreHardwareMonitorLib.dll` através do Python.NET;
-- sensores raw com identificadores de hardware e sensor;
-- coleta periódica em uma worker dedicada e thread-safe;
+- sensores raw com identificadores estáveis de hardware e sensor;
+- coleta periódica e thread-safe em uma worker dedicada do `TelemetryManager`;
 - último `TelemetrySnapshot` raw mantido em memória;
-- resolução determinística das métricas canônicas principais;
-- API FastAPI com REST e WebSockets raw e canônicos;
-- frontend em HTML, CSS e JavaScript puro, servido pelo FastAPI;
+- transformação pura e determinística por `MetricResolver`;
+- conjunto inicial de métricas canônicas em `MetricSnapshot`;
+- API FastAPI read-only com REST e WebSockets raw e canônicos;
+- frontend mínimo em HTML, CSS e JavaScript puro, servido pelo FastAPI;
 - consumo das métricas canônicas pelo frontend através de WebSocket;
-- configuração de host e porta para acesso local ou pela LAN.
+- configuração de host e porta para acesso local ou pela LAN;
+- Actions Core interno, com definições estruturadas, registry de ações permitidas, executor abstrato, adapter Windows e `ActionService`;
+- testes unitários do domínio Actions sem abertura de programas reais;
+- script manual local para validar a execução de uma ação registrada.
 
-Não há autenticação, persistência, execução de ações no Windows ou empacotamento da aplicação.
+Actions é, neste momento, uma funcionalidade interna/local. O navegador não inicia aplicações e não existe endpoint HTTP para execução de ações.
 
 ## Arquitetura
 
+As duas áreas principais são independentes:
+
 ```text
-LibreHardwareMonitor
-        ↓
-LibreHardwareMonitorProvider
-        ↓
-TelemetryManager
-        ↓
-TelemetrySnapshot (raw)
-        ↓
-MetricResolver
-        ↓
-MetricSnapshot (canônico)
-        ↓
-FastAPI
-   ┌────┴─────┐
- REST     WebSocket
-   └────┬─────┘
-        ↓
-     Browser
+PCPanel
+│
+├── Telemetry
+│   LibreHardwareMonitor
+│           ↓
+│   LibreHardwareMonitorProvider
+│           ↓
+│   TelemetryManager
+│           ↓
+│   TelemetrySnapshot (raw)
+│           ↓
+│   MetricResolver
+│           ↓
+│   MetricSnapshot (canônico)
+│           ↓
+│   REST / WebSocket
+│           ↓
+│        Browser
+│
+└── Actions (interno/local)
+    ActionDefinition
+            ↓
+    ActionRegistry
+            ↓
+    ActionService
+            ↓
+    ActionExecutor
+            ↓
+    WindowsProcessExecutor
+            ↓
+    Processo Windows
 ```
 
-Responsabilidades:
+### Regras de Telemetry
 
-- `LibreHardwareMonitorProvider` é o único componente que interage com Python.NET, classes .NET e LibreHardwareMonitor. Ele converte os dados externos em modelos Python.
-- `TelemetryManager` controla o ciclo de vida do provider, executa `update()` e `get_sensors()` em uma worker dedicada, gera `sequence` e `captured_at` e mantém o último snapshot raw.
+- `LibreHardwareMonitorProvider` é o único componente que interage com Python.NET, classes .NET e LibreHardwareMonitor. Ele converte dados externos em modelos Python.
+- `TelemetryManager` controla o ciclo de vida do provider, executa `update()` e `get_sensors()` na worker dedicada, gera `sequence` e `captured_at` e mantém o último snapshot raw.
 - `TelemetrySnapshot` representa uma coleta imutável dos sensores raw.
 - `MetricResolver` é uma transformação pura e determinística de `TelemetrySnapshot` para `MetricSnapshot`.
-- `MetricSnapshot` contém leituras com chaves e unidades pertencentes ao domínio PCPanel.
-- FastAPI lê somente o snapshot já armazenado. Requests HTTP e conexões WebSocket não executam `provider.update()` nem forçam uma coleta.
-- O frontend consome métricas canônicas e não resolve nomes ou tipos específicos de sensores raw.
+- FastAPI lê somente o snapshot já armazenado. Requests e conexões WebSocket não executam coleta.
+- O frontend consome métricas canônicas e não resolve nomes específicos de sensores raw.
+
+### Regras de Actions
+
+- `ActionService.execute()` recebe somente um `action_id`.
+- Somente `ActionRegistry` resolve um ID em uma `ActionDefinition` previamente conhecida.
+- Caminhos de executáveis e argumentos não vêm de requests.
+- Executável e argumentos permanecem estruturados e separados.
+- `WindowsProcessExecutor` é o único componente de Actions que conhece `subprocess`.
+- A criação de processos usa `shell=False`.
+- Não existe fallback de ID para path, command line ou shell command.
+- Actions ainda não está conectado à camada HTTP.
 
 ## Estrutura do projeto
 
@@ -70,13 +99,21 @@ PCPanel/
 │   │       ├── __init__.py
 │   │       ├── base.py
 │   │       └── librehardwaremonitor.py
-│   └── api/
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── app.py
+│   │   ├── metric_contract.py
+│   │   ├── routes.py
+│   │   ├── schemas.py
+│   │   └── websocket.py
+│   └── actions/
 │       ├── __init__.py
-│       ├── app.py
-│       ├── metric_contract.py
-│       ├── routes.py
-│       ├── schemas.py
-│       └── websocket.py
+│       ├── errors.py
+│       ├── executor.py
+│       ├── models.py
+│       ├── registry.py
+│       ├── service.py
+│       └── windows.py
 ├── web/
 │   ├── index.html
 │   ├── README.md
@@ -88,20 +125,19 @@ PCPanel/
 │   └── js/
 │       ├── app.js
 │       ├── components/
-│       │   ├── cat-gauge.js
-│       │   └── thermal-state.js
 │       ├── services/
-│       │   └── websocket-telemetry.js
 │       └── state/
-│           └── telemetry.js
 ├── scripts/
-│   └── inspect_sensors.py
+│   ├── inspect_sensors.py
+│   └── test_action.py
 ├── tests/
+│   ├── actions/
 │   ├── api/
 │   ├── telemetry/
 │   ├── test_config.py
 │   └── test_main.py
 ├── libs/
+├── pytest.ini
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── .gitignore
@@ -186,7 +222,7 @@ O intervalo deve ser finito e maior que zero, a porta deve estar entre 1 e 65535
 
 ## Executando
 
-O entry point real é:
+O entry point é:
 
 ```powershell
 python -m app.main
@@ -204,6 +240,8 @@ Abra `http://127.0.0.1:8000/` no navegador.
 O default `0.0.0.0` permite que o servidor aceite conexões locais e, quando a rede e o firewall permitirem, conexões pela LAN.
 
 ## Endpoints HTTP
+
+Todos os endpoints HTTP atuais são read-only.
 
 ### `GET /api/v1/health`
 
@@ -242,7 +280,7 @@ Retorna o último snapshot raw para diagnóstico:
 
 ### `GET /api/v1/sensors`
 
-Retorna o catálogo de sensores raw do último snapshot. O catálogo contém os campos de identificação e tipo, sem valores:
+Retorna o catálogo de sensores raw do último snapshot, com campos de identificação e tipo, sem valores:
 
 ```json
 {
@@ -277,18 +315,20 @@ Retorna o contrato canônico destinado ao produto e à UI:
 }
 ```
 
-Enquanto ainda não houver um snapshot raw, os endpoints que dependem dele retornam `503 Service Unavailable`.
+Enquanto não houver snapshot raw, os endpoints que dependem dele retornam `503 Service Unavailable`.
+
+> **Actions não possui API neste milestone.** Não existe `POST /api/v1/actions/{id}` nem rota equivalente capaz de iniciar processos. Essa separação é deliberada: o servidor pode estar acessível pela LAN e ainda não existe pairing ou autorização.
 
 ## WebSockets
 
 - `WS /ws/v1/telemetry`: envia snapshots raw quando uma nova `sequence` é observada. É destinado a diagnóstico e usuários avançados.
-- `WS /ws/v1/metrics`: envia o mesmo contrato conceitual de métricas usado por `GET /api/v1/metrics`. É o canal principal do frontend.
+- `WS /ws/v1/metrics`: envia o mesmo contrato conceitual usado por `GET /api/v1/metrics`. É o canal principal do frontend.
 
 Cada conexão mantém seu próprio cursor de sequência. O mesmo snapshot não é reenviado como novo, e desconectar um cliente não interrompe o `TelemetryManager` ou outros clientes.
 
 ## Métricas canônicas
 
-O `MetricResolver` produz atualmente estas métricas:
+O `MetricResolver` garante atualmente estas métricas:
 
 | Chave | Unidade |
 |---|---|
@@ -298,39 +338,155 @@ O `MetricResolver` produz atualmente estas métricas:
 | `gpu.load` | `percent` |
 | `memory.load` | `percent` |
 
-Essas chaves pertencem ao domínio PCPanel e abstraem nomes específicos do LibreHardwareMonitor. Toda métrica conhecida permanece presente; quando indisponível, `value` e `source_sensor_identifier` são `null`.
+Essas chaves pertencem ao domínio PCPanel e abstraem nomes específicos do LibreHardwareMonitor. Toda métrica garantida permanece presente; quando indisponível, `value` e `source_sensor_identifier` são `null`.
 
-`source_sensor_identifier` preserva a rastreabilidade até o sensor raw escolhido pelo resolver, mas não é usado pelo frontend para decidir qual métrica mostrar.
+`source_sensor_identifier` preserva a rastreabilidade até o sensor raw escolhido, mas não é usado pelo frontend para decidir qual métrica mostrar.
 
 ## Frontend
 
 O frontend atual é uma POC em HTML, CSS e JavaScript puro, sem framework ou build system. Ele é servido pelo FastAPI na rota `/` e conecta-se a `/ws/v1/metrics` usando `ws://` ou `wss://` conforme a página.
 
-A interface exibe temperatura e uso de CPU e GPU, além do uso da RAM. Ela mantém o último snapshot visível durante desconexões, tenta reconectar automaticamente e mostra `--` para métricas indisponíveis. O browser não conhece nomes específicos de sensores raw.
+A interface exibe temperatura e uso de CPU e GPU, além do uso da RAM. Ela mantém o último snapshot visível durante desconexões, tenta reconectar automaticamente e mostra `--` para métricas indisponíveis. O browser não conhece nomes específicos de sensores raw e não possui controles para iniciar ações.
 
-Esta interface valida a cadeia backend → browser; não deve ser considerada a interface final do produto.
+Essa interface valida a cadeia backend → browser; não é a interface final do produto.
+
+## Actions Core
+
+O Milestone 5 implementa o domínio interno de ações sem expor execução pela rede.
+
+### ActionDefinition
+
+`ActionDefinition` é uma dataclass imutável que representa uma ação permitida conhecida pelo PCPanel:
+
+| Campo | Tipo | Finalidade |
+|---|---|---|
+| `id` | `str` | Identidade da ação usada para lookup |
+| `label` | `str` | Nome legível |
+| `executable` | `Path` | Executável estruturado |
+| `arguments` | `tuple[str, ...]` | Argumentos separados; default `()` |
+| `working_directory` | `Path \| None` | Diretório de trabalho opcional |
+
+O `id` é uma identidade, não um caminho. Ele deve corresponder integralmente a:
+
+```text
+^[a-z][a-z0-9_-]{0,63}$
+```
+
+Isso significa que começa com letra minúscula, possui no máximo 64 caracteres e depois aceita letras minúsculas, números, `_` e `-`.
+
+Válidos: `notepad`, `steam`, `my_app`, `obs-2`.
+
+Inválidos: `../cmd`, `C:\Windows\cmd.exe`, `Steam`, `app.exe`.
+
+Os exemplos válidos ilustram apenas o formato. Eles não são ações registradas automaticamente pelo produto.
+
+### ActionRegistry
+
+`ActionRegistry` é a whitelist interna das ações conhecidas. Recebe somente instâncias estruturadas de `ActionDefinition`, rejeita IDs duplicados e preserva a ordem de registro na listagem.
+
+```text
+action_id
+    ↓
+ActionRegistry
+    ↓
+ActionDefinition
+```
+
+Quando um ID não existe, `get()` lança `ActionNotFoundError`. O texto desconhecido nunca é reinterpretado como caminho, comando ou shell command; não existe fallback para execução arbitrária.
+
+### ActionService
+
+`ActionService` é a interface de orquestração que uma futura camada externa deverá usar:
+
+```text
+ActionService.execute(action_id)
+        ↓
+ActionRegistry.get(action_id)
+        ↓
+ActionExecutor.execute(action)
+```
+
+Sua entrada de execução é somente `action_id`. O service não recebe executable, path, command line, shell command ou argumentos enviados pelo chamador.
+
+### ActionExecutor e adapter Windows
+
+`ActionExecutor` define o contrato abstrato de tentativa de inicialização. `WindowsProcessExecutor` é a implementação concreta:
+
+```text
+ActionService
+      ↓
+ActionExecutor
+      ↓
+WindowsProcessExecutor
+```
+
+Essa separação permite testar o service com `FakeActionExecutor`, sem abrir programas reais.
+
+O adapter Windows valida o executável e o diretório de trabalho, constrói `argv` como sequência e chama `subprocess.Popen` com `shell=False`. Executável e argumentos permanecem separados, inclusive quando um argumento contém espaços:
+
+```python
+[
+    r"C:\Program Files\App\app.exe",
+    "--flag",
+    "valor com espaços",
+]
+```
+
+Não é construída uma command line única. O pacote Actions não usa `os.system`, `shell=True` ou `cmd.exe /c` para interpretar entrada.
+
+### Erros de domínio
+
+- `ActionNotFoundError`: o `action_id` não existe no registry.
+- `ActionUnavailableError`: a ação existe, mas seu executável ou diretório de trabalho não está disponível neste computador.
+- `ActionExecutionError`: houve falha ao iniciar a ação.
+
+Esses erros pertencem ao domínio e não dependem de FastAPI ou status HTTP. Uma futura API poderá mapeá-los depois que houver autorização, mas esse mapeamento ainda não existe.
+
+## Teste manual local de Actions
+
+O script `scripts/test_action.py` valida manualmente esta cadeia local:
+
+```text
+Python
+   ↓
+ActionService
+   ↓
+ActionRegistry
+   ↓
+WindowsProcessExecutor
+   ↓
+Programa Windows
+```
+
+Atualmente o script registra somente `notepad`, associado internamente a `%SystemRoot%\System32\notepad.exe`:
+
+```powershell
+python scripts/test_action.py notepad
+```
+
+Para consultar a ajuda:
+
+```powershell
+python scripts/test_action.py --help
+```
+
+O usuário fornece apenas o `action_id`. Não existem opções `--command`, `--executable`, `--args` ou `--shell`. Esse é um teste manual e não integra a suíte pytest, portanto CI não abre o Notepad.
 
 ## Acesso pela LAN
 
-O servidor já usa `0.0.0.0` como host padrão. Para acessá-lo de outro dispositivo:
+O servidor usa `0.0.0.0` como host padrão. Para acessá-lo de outro dispositivo:
 
 1. execute `python -m app.main` no PC;
 2. execute `ipconfig` e identifique o IPv4 da interface conectada;
 3. no celular conectado à mesma rede, abra `http://<IP-DO-PC>:8000/`.
 
-Se não funcionar, verifique:
+Se não funcionar, verifique firewall, rede, isolamento de clientes, porta utilizada e se `PCPANEL_HOST` não foi configurado como `127.0.0.1`.
 
-- regra de entrada do Windows Firewall para a porta configurada;
-- se PC e celular estão na mesma rede;
-- guest Wi-Fi ou isolamento de clientes/AP;
-- porta utilizada;
-- se `PCPANEL_HOST` não foi configurado como `127.0.0.1`.
-
-O suporte de bind para LAN existe no código, mas o acesso depende da configuração local de rede e firewall.
+O bind para LAN existe no código, mas o acesso depende da configuração local. A API disponível pela LAN continua limitada a telemetria read-only; Actions não está conectado a ela.
 
 ## Diagnóstico de sensores
 
-Para inspecionar diretamente os sensores raw expostos pelo LibreHardwareMonitor:
+Para inspecionar os sensores raw expostos pelo LibreHardwareMonitor:
 
 ```powershell
 python scripts/inspect_sensors.py
@@ -342,7 +498,7 @@ Para informar uma DLL específica:
 python scripts/inspect_sensors.py --dll-path "C:\Caminho\LibreHardwareMonitorLib.dll"
 ```
 
-O script abre o provider, executa uma atualização, imprime hardware, tipos, valores atuais, mínimos, máximos e identificadores e fecha o provider. Use-o para investigar sensores ausentes, nomes reportados e diferenças entre máquinas.
+O script abre o provider, executa uma atualização, imprime hardware, tipos, valores atuais, mínimos, máximos e identificadores e fecha o provider.
 
 ## Testes
 
@@ -352,42 +508,63 @@ Com as dependências de desenvolvimento instaladas:
 python -m pytest -q
 ```
 
-Os testes de `TelemetryManager`, `MetricResolver`, API e WebSockets usam providers, managers e snapshots sintéticos; não dependem de hardware real, privilégios administrativos, Python.NET ou classes .NET.
+Os testes de Telemetry, Metrics, API e WebSockets usam providers, managers e snapshots sintéticos; não dependem de hardware real, privilégios administrativos, Python.NET ou classes .NET.
 
-A suíte cobre, entre outros pontos:
+Actions possui testes para:
 
-- lifecycle, sincronização, thread affinity e snapshots do manager;
-- endpoints REST e WebSockets raw e canônicos;
-- equivalência do contrato canônico entre REST e WebSocket;
-- resolução para Intel/NVIDIA, AMD/AMD e Intel com iGPU;
-- múltiplas GPUs, sensores ausentes e `value=None`;
-- nomes duplicados e independência da ordem dos sensores;
-- configuração, entry point e arquivos do frontend.
+- validação e imutabilidade de `ActionDefinition`;
+- IDs válidos, inválidos e limite de tamanho;
+- registry, listagem, lookup e rejeição de duplicados;
+- `ActionNotFoundError`, `ActionUnavailableError` e `ActionExecutionError`;
+- orquestração por `ActionService` com `FakeActionExecutor`;
+- preservação de argumentos estruturados;
+- construção de `argv`, `working_directory`/`cwd` e `shell=False`;
+- executável indisponível e falhas de `Popen`;
+- checks estáticos contra padrões de execução por shell e contra uma assinatura pública baseada em command line.
 
-Se `.pytest_cache` não puder ser gravado no ambiente local, o cache pode ser desativado sem alterar os testes:
+`subprocess.Popen` é substituído nos testes do adapter; a suíte não abre programas reais.
+
+Se `.pytest_cache` não puder ser gravado no ambiente local, o cache pode ser desativado:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider
 ```
 
+## Segurança
+
+O projeto ainda não possui autenticação, pairing ou autorização e não deve ser descrito como seguro de forma absoluta.
+
+Telemetry possui uma interface de rede read-only. A API e os WebSockets leem snapshots mantidos em memória e não iniciam coleta nem processos.
+
+Actions possui capacidade local de iniciar processos, mas permanece desconectado da API. Sua fronteira atual combina:
+
+- `ActionRegistry` como whitelist de definições conhecidas;
+- execução solicitada por `action_id`, sem path ou command line externos;
+- executable e argumentos estruturados;
+- `shell=False` no adapter Windows.
+
+Conectar Actions ao FastAPI antes de pairing e autorização criaria uma superfície inadequada enquanto o servidor pode estar acessível pela LAN. Por isso, a integração HTTP foi deliberadamente adiada.
+
 ## Limitações atuais
 
-- execução e coleta focadas em Windows e no runtime `netfx`;
+- suporte focado em Windows e no runtime `netfx`;
 - telemetria limitada ao que LibreHardwareMonitor e o sistema conseguem expor;
 - determinados sensores podem depender de drivers, mecanismos de acesso ou privilégios adicionais;
-- resolução canônica limitada às cinco métricas principais listadas acima;
+- conjunto canônico garantido limitado às cinco métricas principais listadas acima;
 - frontend ainda é uma POC;
-- ausência de autenticação, pairing e persistência;
-- nenhuma API de ações ou comandos Windows.
+- ausência de autenticação, pairing e autorização;
+- Actions não está exposto pela API;
+- ações não possuem configuração persistente nem discovery automático de programas;
+- apenas o script manual registra `notepad`; não existe catálogo de ações de produção;
+- não existe launcher de produção, PWA ou instalador.
 
 ## Roadmap
 
-O próximo passo planejado é o **Milestone 5 — Actions**, ainda não implementado. Conceitos em avaliação incluem `ActionRegistry`, `AppLauncher`, uma rota `POST /api/v1/actions/{id}` e uma whitelist explícita.
+- **Milestone 5 — Actions Core:** concluído como domínio interno/local, sem API.
+- **Milestone 6 — Pairing & Authorization:** próximo passo planejado.
+- **Milestone 7 — Actions API:** integração autorizada, conceitualmente `POST /api/v1/actions/{id}`, somente após o Milestone 6.
+- **Milestone 8 — Persistent Configuration:** configuração persistente do produto e das ações.
+- **Milestone 9 — Product UI:** evolução da interface além da POC atual.
+- **Milestone 10 — Packaging / PWA:** distribuição e experiência instalável.
 
-Também são possibilidades futuras, não funcionalidades atuais: pairing/autenticação, configuração persistente, Vue, PWA e distribuição/instalador para Windows.
-
-## Segurança
-
-A exposição pela LAN deve ser considerada ambiente de desenvolvimento enquanto não houver autenticação ou pairing, especialmente antes de qualquer futura implementação de comandos Windows.
-
-A telemetria atual é somente leitura e possui um perfil de risco diferente de endpoints capazes de executar ações. O projeto não implementa mecanismos de autenticação ou autorização neste momento.
+Pairing, tokens, login, Actions API, configuração persistente, discovery de programas, Steam discovery, shutdown/restart, volume, scripts customizados, Vue, PWA e installer não são funcionalidades implementadas atualmente.
