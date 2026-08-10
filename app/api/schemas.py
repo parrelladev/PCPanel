@@ -4,8 +4,9 @@ import math
 from datetime import datetime
 from enum import Enum
 from typing import Self
+from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..telemetry.metrics import MetricReading, MetricSnapshot
 from ..telemetry.models import SensorReading, TelemetrySnapshot
@@ -133,6 +134,47 @@ class ErrorResponse(BaseModel):
     """Simple error contract shared by API failure responses."""
 
     detail: str
+
+
+class PairingStartRequest(BaseModel):
+    """Public input for beginning a device pairing attempt."""
+
+    device_name: str
+
+
+class PairingStartResponse(BaseModel):
+    """Sanitized pairing metadata safe to return to the remote client."""
+
+    pairing_id: UUID
+    expires_at: datetime
+
+
+class PairingCompleteRequest(BaseModel):
+    """Pairing identifier and the code obtained through the local channel."""
+
+    pairing_id: UUID
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class PairingCompleteResponse(BaseModel):
+    """One-time delivery of a newly issued opaque device credential."""
+
+    device_id: UUID
+    token: str
+
+
+class AuthenticatedDeviceResponse(BaseModel):
+    """Credential-free public representation of an authenticated device."""
+
+    id: UUID
+    name: str
+
+
+class AuthStatusResponse(BaseModel):
+    """Response proving that the request carried a valid device credential."""
+
+    authenticated: bool
+    device: AuthenticatedDeviceResponse
 
 
 def _json_float(value: float | None) -> float | None:

@@ -2,7 +2,7 @@
 
 PCPanel é uma aplicação Windows para coletar telemetria de hardware, transformá-la em métricas estáveis do produto e disponibilizá-la por HTTP e WebSocket a um painel acessível pelo navegador.
 
-O projeto está em fase de prova de conceito. A cadeia de telemetria, métricas canônicas, API read-only, WebSockets e frontend mínimo está implementada. O domínio interno de Actions também existe e pode iniciar ações locais explicitamente registradas, mas ainda não está conectado à API HTTP.
+O projeto está em fase de prova de conceito. A cadeia de telemetria, métricas canônicas, API read-only, WebSockets, frontend mínimo e o Milestone 6 de pairing e autorização estão implementados. O domínio interno de Actions também existe e pode iniciar ações locais explicitamente registradas, mas ainda não está conectado à API HTTP.
 
 ## Estado atual
 
@@ -21,12 +21,18 @@ Já estão implementados:
 - Actions Core interno, com definições estruturadas, registry de ações permitidas, executor abstrato, adapter Windows e `ActionService`;
 - testes unitários do domínio Actions sem abertura de programas reais;
 - script manual local para validar a execução de uma ação registrada.
+- pairing de dispositivos com confirmação do código no console local;
+- tokens bearer opacos para identidade de dispositivos autorizados;
+- autenticação HTTP que transforma um bearer token válido em uma identidade sanitizada;
+- registry de dispositivos e sessões de pairing mantidos somente em memória.
 
 Actions é, neste momento, uma funcionalidade interna/local. O navegador não inicia aplicações e não existe endpoint HTTP para execução de ações.
 
+Pairing e autenticação não tornam o transporte confidencial. O ambiente atual continua sendo uma POC para desenvolvimento/LAN e não implementa HTTPS/TLS: um bearer token enviado por HTTP pode ser observado por alguém com acesso ao caminho de rede.
+
 ## Arquitetura
 
-As duas áreas principais são independentes:
+As três áreas de domínio permanecem separadas, e a composição FastAPI conecta somente Telemetry e Auth à rede:
 
 ```text
 PCPanel
@@ -48,7 +54,16 @@ PCPanel
 │           ↓
 │        Browser
 │
-└── Actions (interno/local)
+├── Auth
+│   PairingService
+│           ↓
+│   PairingChallenge → presenter local
+│           ↓
+│   DeviceRegistry
+│           ↓
+│   HTTPBearer → AuthorizedDevice
+│
+└── Actions (interno/local, sem rota HTTP)
     ActionDefinition
             ↓
     ActionRegistry
@@ -70,6 +85,14 @@ PCPanel
 - `MetricResolver` é uma transformação pura e determinística de `TelemetrySnapshot` para `MetricSnapshot`.
 - FastAPI lê somente o snapshot já armazenado. Requests e conexões WebSocket não executam coleta.
 - O frontend consome métricas canônicas e não resolve nomes específicos de sensores raw.
+
+### Regras de Auth
+
+- `PairingSession` é uma tentativa temporária; não é um `Device` pendente.
+- Um `Device` nasce somente depois da conclusão válida e single-use do pairing.
+- `DeviceRegistry` e `PairingService` usam locks explícitos e mantêm estado somente em memória.
+- `PairingCodePresenter` estabelece o segundo canal local; `pairing/start` nunca devolve o código.
+- A dependency bearer retorna um `AuthorizedDevice` sanitizado e não expõe tokens ou hashes.
 
 ### Regras de Actions
 
@@ -102,10 +125,19 @@ PCPanel/
 │   ├── api/
 │   │   ├── __init__.py
 │   │   ├── app.py
+│   │   ├── dependencies.py
 │   │   ├── metric_contract.py
 │   │   ├── routes.py
 │   │   ├── schemas.py
 │   │   └── websocket.py
+│   ├── auth/
+│   │   ├── __init__.py
+│   │   ├── errors.py
+│   │   ├── models.py
+│   │   ├── pairing.py
+│   │   ├── presenter.py
+│   │   ├── registry.py
+│   │   └── tokens.py
 │   └── actions/
 │       ├── __init__.py
 │       ├── errors.py
@@ -241,7 +273,21 @@ O default `0.0.0.0` permite que o servidor aceite conexões locais e, quando a r
 
 ## Endpoints HTTP
 
-Todos os endpoints HTTP atuais são read-only.
+Os endpoints de telemetria permanecem públicos e read-only. Os endpoints de pairing criam identidade de dispositivo, e `/api/v1/auth/status` exige autenticação bearer. Actions continua sem qualquer endpoint HTTP.
+
+### `POST /api/v1/pairing/start`
+
+Inicia uma tentativa temporária de pairing a partir de um nome humano de dispositivo. A resposta contém somente `pairing_id` e `expires_at`; o código não é devolvido ao cliente remoto e é apresentado intencionalmente no console local pelo `ConsolePairingCodePresenter`.
+
+O pairing possui TTL default de 5 minutos, no máximo 5 tentativas e limite default de 10 sessões pendentes. Esses limites são configuráveis na composição do serviço. Sessões são single-use, sessões expiradas liberam capacidade e tentativas esgotadas bloqueiam a sessão.
+
+### `POST /api/v1/pairing/complete`
+
+Recebe `pairing_id` e o código obtido pelo segundo canal/local. Em caso de sucesso cria um `Device` e devolve `device_id` e um token bearer opaco. O token plaintext é entregue somente nessa resposta e não existe endpoint de recuperação; se ele for perdido, é necessário realizar novo pairing.
+
+### `GET /api/v1/auth/status`
+
+Exige `Authorization: Bearer <token>` e retorna apenas a identidade sanitizada do dispositivo (`id` e `name`). Ausência de credencial, token inválido, token revogado, scheme inadequado ou bearer malformado retornam `401 Unauthorized` com `WWW-Authenticate: Bearer`.
 
 ### `GET /api/v1/health`
 
@@ -317,7 +363,7 @@ Retorna o contrato canônico destinado ao produto e à UI:
 
 Enquanto não houver snapshot raw, os endpoints que dependem dele retornam `503 Service Unavailable`.
 
-> **Actions não possui API neste milestone.** Não existe `POST /api/v1/actions/{id}` nem rota equivalente capaz de iniciar processos. Essa separação é deliberada: o servidor pode estar acessível pela LAN e ainda não existe pairing ou autorização.
+> **Actions não possui API neste milestone.** Não existe `POST /api/v1/actions/{id}` nem rota equivalente capaz de iniciar processos. O M6 fornece identidade e autorização na aplicação, mas a conexão de Actions ao HTTP pertence ao M7 e não foi implementada.
 
 ## WebSockets
 
@@ -440,7 +486,7 @@ Não é construída uma command line única. O pacote Actions não usa `os.syste
 - `ActionUnavailableError`: a ação existe, mas seu executável ou diretório de trabalho não está disponível neste computador.
 - `ActionExecutionError`: houve falha ao iniciar a ação.
 
-Esses erros pertencem ao domínio e não dependem de FastAPI ou status HTTP. Uma futura API poderá mapeá-los depois que houver autorização, mas esse mapeamento ainda não existe.
+Esses erros pertencem ao domínio e não dependem de FastAPI ou status HTTP. Uma futura Actions API poderá mapeá-los, mas esse mapeamento e as rotas de execução ainda não existem.
 
 ## Teste manual local de Actions
 
@@ -530,9 +576,27 @@ Se `.pytest_cache` não puder ser gravado no ambiente local, o cache pode ser de
 python -m pytest -q -p no:cacheprovider
 ```
 
+## Pairing & Authorization
+
+O Milestone 6 implementa identidade de dispositivos sem JWT, OAuth, usuários/senhas ou roles:
+
+- `DeviceRegistry` é thread-safe e mantém em memória `Device` e somente hashes SHA-256 das credenciais;
+- tokens são segredos opacos gerados com 32 bytes aleatórios por `secrets.token_urlsafe`, aproximadamente 256 bits de entropia antes da codificação;
+- token plaintext existe apenas na emissão, na resposta única de `pairing/complete` e no header enviado posteriormente pelo cliente;
+- pairing codes possuem exatamente 6 dígitos, são gerados com `secrets`, armazenados somente como hash e comparados com `hmac.compare_digest`;
+- sessões usam TTL de 5 minutos, 5 tentativas e limite de 10 pairings pendentes por default;
+- verificação de capacidade, decremento de tentativas e conclusão são protegidos por sincronização explícita;
+- cada pairing é single-use, inclusive diante de replay concorrente;
+- o código plaintext existe temporariamente em `PairingChallenge` e é mostrado somente pelo presenter local, nunca pela resposta de `pairing/start` ou por logging normal;
+- `HTTPBearer(auto_error=False)` mantém semântica uniforme de `401` para credenciais ausentes ou inválidas.
+
+`DeviceRegistry` e `PairingService` são in-memory. Reiniciar o processo apaga dispositivos, hashes e sessões; tokens antigos deixam de funcionar e um novo pairing é obrigatório. Não há persistência em arquivo, SQLite, keyring ou banco externo.
+
+As rotas públicas/read-only continuam sendo `health`, `telemetry`, `sensors`, `metrics` e os WebSockets de telemetry e metrics.
+
 ## Segurança
 
-O projeto ainda não possui autenticação, pairing ou autorização e não deve ser descrito como seguro de forma absoluta.
+O projeto possui pairing, identidade e autorização na aplicação, mas não deve ser descrito como seguro de forma absoluta.
 
 Telemetry possui uma interface de rede read-only. A API e os WebSockets leem snapshots mantidos em memória e não iniciam coleta nem processos.
 
@@ -545,6 +609,8 @@ Actions possui capacidade local de iniciar processos, mas permanece desconectado
 
 Conectar Actions ao FastAPI antes de pairing e autorização criaria uma superfície inadequada enquanto o servidor pode estar acessível pela LAN. Por isso, a integração HTTP foi deliberadamente adiada.
 
+O bearer token é uma credencial sensível. HTTP sem TLS não oferece confidencialidade contra um observador on-path: o ambiente atual é destinado a desenvolvimento/LAN e HTTPS/TLS completo não foi implementado no M6. Use uma rede confiável e limite o bind a `127.0.0.1` quando acesso remoto não for necessário.
+
 ## Limitações atuais
 
 - suporte focado em Windows e no runtime `netfx`;
@@ -552,7 +618,8 @@ Conectar Actions ao FastAPI antes de pairing e autorização criaria uma superf�
 - determinados sensores podem depender de drivers, mecanismos de acesso ou privilégios adicionais;
 - conjunto canônico garantido limitado às cinco métricas principais listadas acima;
 - frontend ainda é uma POC;
-- ausência de autenticação, pairing e autorização;
+- autenticação e pairing são voláteis e exigem novo pairing após cada reinício;
+- ausência de HTTPS/TLS integrado para proteger bearer tokens no transporte;
 - Actions não está exposto pela API;
 - ações não possuem configuração persistente nem discovery automático de programas;
 - apenas o script manual registra `notepad`; não existe catálogo de ações de produção;
@@ -561,10 +628,10 @@ Conectar Actions ao FastAPI antes de pairing e autorização criaria uma superf�
 ## Roadmap
 
 - **Milestone 5 — Actions Core:** concluído como domínio interno/local, sem API.
-- **Milestone 6 — Pairing & Authorization:** próximo passo planejado.
+- **Milestone 6 — Pairing & Authorization:** concluído, com estado in-memory e sem TLS integrado.
 - **Milestone 7 — Actions API:** integração autorizada, conceitualmente `POST /api/v1/actions/{id}`, somente após o Milestone 6.
 - **Milestone 8 — Persistent Configuration:** configuração persistente do produto e das ações.
 - **Milestone 9 — Product UI:** evolução da interface além da POC atual.
 - **Milestone 10 — Packaging / PWA:** distribuição e experiência instalável.
 
-Pairing, tokens, login, Actions API, configuração persistente, discovery de programas, Steam discovery, shutdown/restart, volume, scripts customizados, Vue, PWA e installer não são funcionalidades implementadas atualmente.
+Actions API, configuração persistente, discovery de programas, Steam discovery, shutdown/restart, volume, scripts customizados, Vue, PWA e installer não são funcionalidades implementadas atualmente. O M7 não está implementado.

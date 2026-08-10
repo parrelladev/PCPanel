@@ -22,3 +22,15 @@ def test_lifespan_starts_and_stops_shared_manager() -> None:
         manager.stop.assert_called_once_with()
 
     asyncio.run(exercise_lifespan())
+
+
+def test_app_composes_one_shared_auth_runtime() -> None:
+    manager = Mock(spec=TelemetryManager)
+    application = create_app(manager)
+
+    registry = application.state.device_registry
+    pairing = application.state.pairing_service
+
+    assert application.state.device_registry is registry
+    assert application.state.pairing_service is pairing
+    assert pairing._registry is registry
