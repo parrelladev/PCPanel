@@ -6,10 +6,12 @@ from fastapi import APIRouter, HTTPException, Request, status
 
 from ..telemetry.manager import TelemetryManager
 from ..telemetry.models import SensorReading, TelemetrySnapshot
+from .metric_contract import metrics_response_from_raw
 from .schemas import (
     ApiHealthStatus,
     ErrorResponse,
     HealthResponse,
+    MetricsResponse,
     SensorCatalogItem,
     SensorCatalogResponse,
     TelemetryHealthStatus,
@@ -45,6 +47,17 @@ def get_telemetry(request: Request) -> TelemetryResponse:
     snapshot = _get_snapshot_or_503(request)
 
     return TelemetryResponse.from_snapshot(snapshot)
+
+
+@router.get(
+    "/metrics",
+    response_model=MetricsResponse,
+    responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse}},
+)
+def get_metrics(request: Request) -> MetricsResponse:
+    """Resolve the latest in-memory raw snapshot into canonical metrics."""
+
+    return metrics_response_from_raw(_get_snapshot_or_503(request))
 
 
 @router.get(

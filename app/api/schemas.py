@@ -7,6 +7,7 @@ from typing import Self
 
 from pydantic import BaseModel
 
+from ..telemetry.metrics import MetricReading, MetricSnapshot
 from ..telemetry.models import SensorReading, TelemetrySnapshot
 
 
@@ -73,6 +74,41 @@ class TelemetryResponse(BaseModel):
             sequence=snapshot.sequence,
             captured_at=snapshot.captured_at,
             sensors=[SensorResponse.from_reading(sensor) for sensor in snapshot.sensors],
+        )
+
+
+class MetricReadingResponse(BaseModel):
+    """HTTP representation of one canonical metric reading."""
+
+    value: float | None
+    unit: str
+    source_sensor_identifier: str | None
+
+    @classmethod
+    def from_reading(cls, reading: MetricReading) -> Self:
+        return cls(
+            value=_json_float(reading.value),
+            unit=reading.unit,
+            source_sensor_identifier=reading.source_sensor_identifier,
+        )
+
+
+class MetricsResponse(BaseModel):
+    """Product-facing canonical metrics indexed by their stable keys."""
+
+    sequence: int
+    captured_at: datetime
+    metrics: dict[str, MetricReadingResponse]
+
+    @classmethod
+    def from_snapshot(cls, snapshot: MetricSnapshot) -> Self:
+        return cls(
+            sequence=snapshot.sequence,
+            captured_at=snapshot.captured_at,
+            metrics={
+                reading.key: MetricReadingResponse.from_reading(reading)
+                for reading in snapshot.metrics
+            },
         )
 
 
