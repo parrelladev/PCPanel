@@ -1,3 +1,76 @@
 @import url("/css/variables.css");
 @import url("/css/layout.css");
 @import url("/css/components.css");
+
+.auth-view {
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-primary, #f8fafc);
+  background: #08090c;
+}
+
+.auth-view[hidden],
+.auth-status[hidden],
+.pairing-card[hidden],
+.pairing-form[hidden] { display: none !important; }
+
+.auth-view h1,
+.auth-view p { margin: 0; }
+
+.auth-view p { color: var(--text-secondary, #94a3b8); }
+
+.auth-status { display: grid; justify-items: center; gap: var(--space-3); }
+
+.pairing-card {
+  width: min(100%, 520px);
+  display: grid;
+  gap: var(--space-5);
+  padding: clamp(24px, 6vw, 40px);
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 35%);
+}
+
+.pairing-card__intro { display: grid; gap: var(--space-3); }
+.pairing-card__eyebrow { color: var(--success); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.pairing-card h1 { font-size: clamp(1.65rem, 7vw, 2.4rem); line-height: 1.05; }
+.pairing-card ol { margin: 0; padding-left: 1.4rem; color: var(--text-secondary); line-height: 1.65; }
+.pairing-form { display: grid; gap: var(--space-3); }
+.pairing-form label { font-weight: 700; }
+.pairing-form input {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 var(--space-4);
+  color: var(--text-primary);
+  background: var(--surface-soft);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+}
+.pairing-form input:focus { outline: 2px solid var(--success); outline-offset: 2px; }
+.pairing-code { text-align: center; font-size: 2rem; font-weight: 800; letter-spacing: .28em; font-variant-numeric: tabular-nums; }
+.pairing-button {
+  min-height: 52px;
+  padding: var(--space-3) var(--space-5);
+  font-weight: 800;
+  background: var(--success);
+  color: #07110b;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.pairing-button--secondary { color: var(--text-primary); background: var(--surface-elevated); border: 1px solid var(--border-strong); }
+.pairing-button:disabled { cursor: wait; opacity: .6; }
+.pairing-countdown { min-height: 1.2em; font-size: .9rem; }
+.pairing-feedback { padding: var(--space-3); color: #fff; background: rgb(255 83 100 / 14%); border: 1px solid var(--danger); border-radius: var(--radius-md); }
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .auth-view { place-content: start center; padding-block: var(--space-3); }
+  .pairing-card { grid-template-columns: 1fr 1fr; width: min(100%, 860px); padding: var(--space-5); }
+  .pairing-feedback { grid-column: 1 / -1; }
+}

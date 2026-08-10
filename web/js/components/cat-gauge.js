@@ -29,7 +29,7 @@ export function createCatGauge({ kind, label }) {
         : 0;
       element.style.setProperty("--usage", safeUsage.toFixed(1));
       element.style.setProperty("--thermal-color", color);
-      usageLabel.textContent = available ? `${Math.round(safeUsage)}%` : "--";
+      usageLabel.textContent = available ? `${Math.round(safeUsage)} %` : "--";
       element.className = `cat-gauge cat--${mood}`;
       const usageDescription = available
         ? `uso ${Math.round(safeUsage)}%`

@@ -33,13 +33,26 @@ web/
 
 ## Arquitetura
 
-O fluxo é unidirecional:
+Os fluxos são centralizados por domínio:
 
 ```text
 websocket-telemetry.js → telemetry state → app/components → DOM
+localStorage → auth-bootstrap/authenticated-fetch → auth state → app → DOM
 ```
 
 O serviço recebe snapshots canônicos e estados de conexão. O state mantém o último snapshot e notifica assinantes. Componentes recebem dados do state e não conhecem sensores raw.
+
+O dashboard usa CPU, GPU e RAM em três colunas no landscape e uma coluna no portrait. Se o WebSocket cair, o último snapshot permanece visível como dado anterior; a reconexão usa backoff de 1, 2, 4 e até 8 segundos, passa a Offline após 15 segundos e tenta imediatamente ao voltar do background quando o socket já encerrou.
+
+No início, a aplicação valida `pcpanel.deviceToken` em `/api/v1/auth/status` antes de exibir o dashboard. Respostas 401 removem a credencial e retornam ao estado não pareado; falhas de rede preservam a credencial e exibem o estado offline. O dispositivo autorizado retornado pelo backend permanece somente em memória.
+
+Dispositivos não pareados usam um fluxo em duas etapas: informam o nome, recebem apenas os metadados temporários de `/pairing/start` e digitam o código exibido localmente no PC. Após `/pairing/complete`, a credencial é armazenada e validada novamente em `/auth/status` antes de o dashboard ser liberado. Identificador, código e expiração do pairing não são persistidos pelo navegador.
+
+A aba Apps carrega `/api/v1/actions` uma vez na primeira entrada e oferece atualização manual. O catálogo é projetado no frontend exclusivamente como `id` e `label`; lista vazia, API desabilitada, indisponibilidade de rede e falha do servidor possuem estados visuais distintos.
+
+Cada card executa somente seu `action_id` por `POST /api/v1/actions/{action_id}/execute`. Os estados `idle`, `executing`, `success` e `error` são independentes por card; um segundo toque é bloqueado durante a requisição e o feedback retorna ao estado normal automaticamente.
+
+A aba Sistema é somente leitura: combina o nome do dispositivo autorizado em memória, a conexão do WebSocket para servidor e telemetria e o estado compartilhado do catálogo de Actions. Nenhum comando ou segredo é apresentado por essa tela.
 
 ## Contrato canônico
 

@@ -17,7 +17,7 @@ export function setMetricSnapshot(snapshot) {
 }
 
 export function setConnection(connection) {
-  if (!["connected", "connecting", "disconnected"].includes(connection)) return;
+  if (!["connected", "connecting", "reconnecting", "offline"].includes(connection)) return;
   state = Object.freeze({ ...state, connection });
   notify();
 }

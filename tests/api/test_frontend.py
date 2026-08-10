@@ -51,8 +51,18 @@ def test_frontend_javascript_is_available() -> None:
 def test_frontend_module_files_are_available() -> None:
     module_paths = (
         "/js/state/telemetry.js",
+        "/js/state/auth.js",
         "/js/services/websocket-telemetry.js",
+        "/js/services/authenticated-fetch.js",
+        "/js/services/auth-bootstrap.js",
+        "/js/services/pairing.js",
+        "/js/services/actions-catalog.js",
+        "/js/services/action-execution.js",
         "/js/components/cat-gauge.js",
+        "/js/components/apps-launcher.js",
+        "/js/components/system-status.js",
+        "/js/components/dashboard-metrics.js",
+        "/js/components/pairing-view.js",
         "/js/components/thermal-state.js",
     )
 
@@ -73,8 +83,12 @@ def test_frontend_websocket_uses_only_canonical_metrics_contract() -> None:
     assert response.status_code == 200
     assert "/ws/v1/metrics" in response.text
     assert "/ws/v1/telemetry" not in response.text
-    assert "window.location.host" in response.text
+    assert "browserWindow.location.host" in response.text
     assert '"wss:"' in response.text
+    assert '"reconnecting"' in response.text
+    assert '"offline"' in response.text
+    assert '"visibilitychange"' in response.text
+    assert "RECONNECT_DELAYS_MS" in response.text
 
 
 def test_frontend_has_no_raw_sensor_resolution_terms() -> None:
@@ -101,3 +115,43 @@ def test_frontend_has_no_raw_sensor_resolution_terms() -> None:
         source = "\n".join(client.get(path).text for path in module_paths)
 
     assert all(term not in source for term in forbidden_terms)
+
+
+def test_unpaired_frontend_has_mobile_pairing_form_without_secret_output() -> None:
+    with _client() as client:
+        response = client.get("/")
+
+    assert 'id="pairing-name-form"' in response.text
+    assert 'name="device_name"' in response.text
+    assert 'maxlength="100"' in response.text
+    assert 'id="pairing-code-form"' in response.text
+    assert 'inputmode="numeric"' in response.text
+    assert 'autocomplete="one-time-code"' in response.text
+    assert 'maxlength="6"' in response.text
+    assert "token" not in response.text.lower()
+
+
+def test_apps_tab_has_real_launcher_states_and_preserves_navigation() -> None:
+    with _client() as client:
+        response = client.get("/")
+
+    assert 'id="apps-grid"' in response.text
+    assert 'id="apps-status"' in response.text
+    assert 'id="apps-refresh"' in response.text
+    assert 'data-target="performance"' in response.text
+    assert 'data-target="apps"' in response.text
+    assert 'data-target="system"' in response.text
+    assert "reservada para uma próxima etapa" not in response.text
+
+
+def test_system_tab_is_status_only_and_contains_no_mutating_controls() -> None:
+    with _client() as client:
+        response = client.get("/")
+
+    assert 'id="system-device-name"' in response.text
+    assert 'id="system-device-status"' in response.text
+    assert 'id="system-server-status"' in response.text
+    assert 'id="system-actions-status"' in response.text
+    assert 'id="system-telemetry-status"' in response.text
+    forbidden_actions = ("Shutdown", "Restart", "Sleep", "Lock Windows", "Desparear")
+    assert all(action not in response.text for action in forbidden_actions)

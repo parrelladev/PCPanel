@@ -8,7 +8,43 @@
     <link rel="stylesheet" href="/css/app.css">
   </head>
   <body>
-    <div class="app-shell" id="app-shell">
+    <main class="auth-view" id="auth-view">
+      <section class="auth-status" id="auth-status" role="status" aria-live="polite">
+        <h1 id="auth-title">Verificando acesso…</h1>
+        <p id="auth-message">Validando este dispositivo com o PCPanel.</p>
+        <button class="pairing-button pairing-button--secondary" id="auth-retry" type="button" hidden>Tentar novamente</button>
+      </section>
+
+      <section class="pairing-card" id="pairing-view" aria-labelledby="pairing-title" hidden>
+        <div class="pairing-card__intro">
+          <span class="pairing-card__eyebrow">PCPanel</span>
+          <h1 id="pairing-title">Conectar este dispositivo</h1>
+          <ol>
+            <li>Informe um nome para o celular.</li>
+            <li>Observe o código exibido no PC.</li>
+            <li>Digite o código aqui para conectar.</li>
+          </ol>
+        </div>
+
+        <form class="pairing-form" id="pairing-name-form" novalidate>
+          <label for="device-name">Nome do dispositivo</label>
+          <input id="device-name" name="device_name" type="text" maxlength="100" autocomplete="nickname" placeholder="Ex.: Meu celular" required>
+          <button class="pairing-button" type="submit">Mostrar código no PC</button>
+        </form>
+
+        <form class="pairing-form" id="pairing-code-form" novalidate hidden>
+          <label for="pairing-code">Código exibido no PC</label>
+          <input class="pairing-code" id="pairing-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" minlength="6" maxlength="6" pattern="[0-9]{6}" placeholder="000000" required>
+          <p class="pairing-countdown" id="pairing-countdown"></p>
+          <button class="pairing-button" type="submit">Conectar</button>
+          <button class="pairing-button pairing-button--secondary" id="pairing-back" type="button">Voltar e gerar novo código</button>
+        </form>
+
+        <p class="pairing-feedback" id="pairing-feedback" role="alert" hidden></p>
+      </section>
+    </main>
+
+    <div class="app-shell" id="app-shell" hidden>
       <header class="topbar">
         <a class="brand" href="#performance" aria-label="PCPanel Performance">
           <span class="brand__mark" aria-hidden="true"><i></i><i></i></span>
@@ -25,18 +61,41 @@
 
       <main class="workspace">
         <section class="view view--active" id="performance-view" data-view="performance" aria-label="Performance do hardware">
-          <div class="hardware-grid" id="hardware-grid"></div>
-          <div class="memory-grid" id="memory-grid"></div>
+          <div class="performance-grid">
+            <div class="hardware-grid" id="hardware-grid"></div>
+            <div class="memory-grid" id="memory-grid"></div>
+          </div>
         </section>
 
-        <section class="view empty-view" id="apps-view" data-view="apps" aria-labelledby="apps-title" hidden>
-          <span class="empty-view__icon" aria-hidden="true">▦</span>
-          <div><h1 id="apps-title">Apps</h1><p>Visão de aplicativos reservada para uma próxima etapa.</p></div>
+        <section class="view apps-view" id="apps-view" data-view="apps" aria-labelledby="apps-title" hidden>
+          <header class="apps-view__header">
+            <div><span>Launcher</span><h1 id="apps-title">Apps</h1></div>
+            <button class="apps-refresh" id="apps-refresh" type="button" hidden>Atualizar</button>
+          </header>
+          <p class="apps-status" id="apps-status" role="status" aria-live="polite">Carregando aplicativos…</p>
+          <div class="apps-grid" id="apps-grid" aria-label="Aplicativos disponíveis" hidden></div>
         </section>
 
-        <section class="view empty-view" id="system-view" data-view="system" aria-labelledby="system-title" hidden>
-          <span class="empty-view__icon" aria-hidden="true">⌁</span>
-          <div><h1 id="system-title">Sistema</h1><p>Detalhes do PC serão conectados futuramente.</p></div>
+        <section class="view system-view" id="system-view" data-view="system" aria-labelledby="system-title" hidden>
+          <header class="system-view__header"><span>Status</span><h1 id="system-title">Sistema</h1></header>
+          <div class="system-grid">
+            <article class="system-card system-card--device">
+              <span class="system-card__icon" aria-hidden="true">●</span>
+              <div><h2>Dispositivo</h2><strong id="system-device-name">Dispositivo não identificado</strong><p id="system-device-status">Não autorizado</p></div>
+            </article>
+            <article class="system-card">
+              <span class="system-card__icon" aria-hidden="true">●</span>
+              <div><h2>Servidor</h2><strong id="system-server-status">Offline</strong></div>
+            </article>
+            <article class="system-card">
+              <span class="system-card__icon" aria-hidden="true">●</span>
+              <div><h2>Actions</h2><strong id="system-actions-status">Carregando</strong></div>
+            </article>
+            <article class="system-card">
+              <span class="system-card__icon" aria-hidden="true">●</span>
+              <div><h2>Telemetria</h2><strong id="system-telemetry-status">Conectando</strong></div>
+            </article>
+          </div>
         </section>
       </main>
 

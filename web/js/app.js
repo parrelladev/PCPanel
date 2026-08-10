@@ -6,6 +6,12 @@ import {
   thermalPresentation,
 } from "./components/thermal-state.js";
 import { startWebSocketTelemetry } from "./services/websocket-telemetry.js";
+import { bootstrapAuthentication } from "./services/auth-bootstrap.js";
+import { AUTH_STATUS, subscribeAuth } from "./state/auth.js";
+import { createPairingView } from "./components/pairing-view.js";
+import { createAppsLauncher } from "./components/apps-launcher.js";
+import { createSystemStatus } from "./components/system-status.js";
+import { clampPercent, formatMetric, metricReading } from "./components/dashboard-metrics.js";
 import {
   setConnection,
   setMetricSnapshot,
@@ -31,6 +37,16 @@ const memoryGrid = document.querySelector("#memory-grid");
 const shell = document.querySelector("#app-shell");
 const connection = document.querySelector("#connection");
 const connectionLabel = document.querySelector("#connection-label");
+const authView = document.querySelector("#auth-view");
+const authTitle = document.querySelector("#auth-title");
+const authMessage = document.querySelector("#auth-message");
+const authStatus = document.querySelector("#auth-status");
+const authRetry = document.querySelector("#auth-retry");
+const pairingRoot = document.querySelector("#pairing-view");
+const appsRoot = document.querySelector("#apps-view");
+const systemRoot = document.querySelector("#system-view");
+let telemetryStarted = false;
+let previousAuthStatus = null;
 
 const cardViews = {
   cpu: createHardwareCard("cpu", "CPU", COLORS.cpu),
@@ -40,13 +56,52 @@ hardwareGrid.append(cardViews.cpu.element, cardViews.gpu.element);
 
 const memoryView = createMemoryCard();
 memoryGrid.append(memoryView.element);
+const pairingView = createPairingView(pairingRoot);
+const appsLauncher = createAppsLauncher(appsRoot);
+const systemStatus = createSystemStatus(systemRoot, appsLauncher);
 
-subscribe(render);
 setupNavigation();
-startWebSocketTelemetry({
-  onSnapshot: setMetricSnapshot,
-  onConnection: setConnection,
-});
+authRetry.addEventListener("click", bootstrapAuthentication);
+subscribe(render);
+subscribeAuth(renderAuth);
+bootstrapAuthentication();
+
+function renderAuth(auth) {
+  const content = {
+    checking: ["Verificando acesso…", "Validando este dispositivo com o PCPanel."],
+    offline: ["PCPanel indisponível", "Sua credencial foi mantida. Tente novamente quando o PC estiver online."],
+  };
+  const authenticated = auth.status === AUTH_STATUS.AUTHENTICATED;
+  const unpaired = auth.status === AUTH_STATUS.UNPAIRED;
+  if (!authenticated && previousAuthStatus === AUTH_STATUS.AUTHENTICATED) appsLauncher.reset();
+  shell.hidden = !authenticated;
+  authView.hidden = authenticated;
+  authStatus.hidden = unpaired;
+  pairingRoot.hidden = !unpaired;
+  authRetry.hidden = auth.status !== AUTH_STATUS.OFFLINE;
+
+  if (authenticated) {
+    if (!telemetryStarted) {
+      telemetryStarted = true;
+      startWebSocketTelemetry({ onSnapshot: setMetricSnapshot, onConnection: setConnection });
+    }
+    if (previousAuthStatus !== AUTH_STATUS.AUTHENTICATED) appsLauncher.reset();
+    previousAuthStatus = auth.status;
+    return;
+  }
+
+  if (unpaired) {
+    if (previousAuthStatus !== AUTH_STATUS.UNPAIRED) pairingView.reset();
+    pairingView.show();
+    previousAuthStatus = auth.status;
+    return;
+  }
+
+  const [title, message] = content[auth.status] ?? content.checking;
+  authTitle.textContent = title;
+  authMessage.textContent = message;
+  previousAuthStatus = auth.status;
+}
 
 function createHardwareCard(kind, label, color) {
   const article = document.createElement("article");
@@ -136,7 +191,7 @@ function renderHardware(view, temperatureReading, loadReading, policy) {
 
 function renderMemory(reading) {
   const load = reading?.value ?? null;
-  const width = load === null ? 0 : clamp(load);
+  const width = load === null ? 0 : clampPercent(load);
   memoryView.percent.textContent = formatMetric(reading);
   memoryView.fill.style.width = `${width}%`;
   if (load === null) {
@@ -148,30 +203,21 @@ function renderMemory(reading) {
   }
 }
 
-function metricReading(metrics, key) {
-  const reading = metrics[key];
-  return typeof reading?.value === "number" && Number.isFinite(reading.value)
-    ? reading
-    : null;
-}
-
-function formatMetric(reading) {
-  if (reading === null) return "--";
-  if (reading.unit === "celsius") return `${Math.round(reading.value)}°`;
-  if (reading.unit === "percent") return `${Math.round(reading.value)}%`;
-  return String(reading.value);
-}
-
 function renderConnection(status) {
   const labels = {
-    connected: "Connected",
-    connecting: "Connecting",
-    disconnected: "Disconnected · stale",
+    connected: "Conectado · ao vivo",
+    connecting: "Conectando",
+    reconnecting: "Reconectando · dados anteriores",
+    offline: "Offline · dados anteriores",
   };
   connectionLabel.textContent = labels[status] ?? labels.connecting;
   connection.className = `connection connection--${status}`;
   connection.setAttribute("aria-label", `Estado da conexão: ${labels[status]}`);
-  shell.classList.toggle("is-stale", status === "disconnected");
+  const stale = ["reconnecting", "offline"].includes(status);
+  shell.classList.toggle("is-stale", stale);
+  document.querySelectorAll(".metric-status").forEach((indicator) => {
+    indicator.textContent = stale ? "Dados anteriores" : (status === "connected" ? "Ao vivo" : "Aguardando");
+  });
 }
 
 function setupNavigation() {
@@ -186,10 +232,8 @@ function setupNavigation() {
       document.querySelectorAll(".view").forEach((view) => {
         view.hidden = view.dataset.view !== button.dataset.target;
       });
+      if (button.dataset.target === "apps") appsLauncher.load();
+      if (button.dataset.target === "system") systemStatus.refresh();
     });
   });
-}
-
-function clamp(value) {
-  return Math.min(100, Math.max(0, Number(value) || 0));
 }
