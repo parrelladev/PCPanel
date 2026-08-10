@@ -12,6 +12,10 @@ from .base import TelemetryProvider
 _DLL_NAME = "LibreHardwareMonitorLib.dll"
 _DLL_ENV_VAR = "PCPANEL_LHM_DLL"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_DLL_PATHS = (
+    Path("libs") / "LibreHardwareMonitor" / _DLL_NAME,
+    Path("libs") / _DLL_NAME,
+)
 
 
 class LibreHardwareMonitorProvider(TelemetryProvider):
@@ -187,16 +191,19 @@ class LibreHardwareMonitorProvider(TelemetryProvider):
             self._resolved_dll_path = dll_path
             return dll_path
 
-        dll_path = (_PROJECT_ROOT / "libs" / _DLL_NAME).resolve()
-        if dll_path.is_file():
-            self._resolved_dll_path = dll_path
-            return dll_path
+        searched_paths: list[Path] = []
+        for relative_path in _DEFAULT_DLL_PATHS:
+            dll_path = (_PROJECT_ROOT / relative_path).resolve()
+            searched_paths.append(dll_path)
+            if dll_path.is_file():
+                self._resolved_dll_path = dll_path
+                return dll_path
 
         raise FileNotFoundError(
             "LibreHardwareMonitorLib.dll was not found. "
             "Pass dll_path=..., set the PCPANEL_LHM_DLL environment variable, "
-            "or place the DLL in PROJECT_ROOT/libs.\n"
-            f"Searched:\n  - {dll_path}"
+            "or run scripts/install_lhm.ps1.\n"
+            "Searched:\n  - " + "\n  - ".join(map(str, searched_paths))
         )
 
     def _require_open_computer(self) -> Any:

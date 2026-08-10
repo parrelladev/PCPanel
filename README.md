@@ -222,17 +222,47 @@ Não instale um pacote separado chamado `clr`. O módulo `clr` utilizado pelo pr
 
 ## LibreHardwareMonitor DLL
 
-Por padrão, coloque a biblioteca e as DLLs dependentes da mesma distribuição em:
+Por padrão, instale a biblioteca e todas as dependências da mesma distribuição em:
 
 ```text
-libs/LibreHardwareMonitorLib.dll
+libs/LibreHardwareMonitor/LibreHardwareMonitorLib.dll
+```
+
+O diretório é local e ignorado pelo Git. A instalação padrão baixa uma versão
+fixada da release oficial do GitHub, valida seu SHA-256 e extrai a distribuição completa:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_lhm.ps1
+```
+
+O script não segue silenciosamente a release `latest`: versão, URL oficial e hash ficam
+fixados no arquivo para que a instalação seja reproduzível e revisável. O `Bypass` vale
+apenas para esse processo e permite executar o script quando a política local bloqueia
+scripts não assinados.
+
+Para desenvolvimento ou instalação offline, também é possível usar uma distribuição
+já extraída:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_lhm.ps1 `
+    -SourceDirectory "D:\LibreHardwareMonitor"
+```
+
+Para substituir uma instalação existente, adicione `-Force`. Um pacote ZIP local também
+pode ser usado; nesse modo o hash SHA-256 é obrigatório:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_lhm.ps1 `
+    -ArchivePath ".\downloads\LibreHardwareMonitor.zip" `
+    -Sha256 "HASH_SHA256_DE_64_CARACTERES"
 ```
 
 O provider procura a DLL nesta ordem:
 
 1. caminho fornecido ao construtor;
 2. variável de ambiente `PCPANEL_LHM_DLL`;
-3. `libs/LibreHardwareMonitorLib.dll` na raiz do projeto.
+3. `libs/LibreHardwareMonitor/LibreHardwareMonitorLib.dll` na raiz do projeto;
+4. `libs/LibreHardwareMonitorLib.dll` (layout antigo, mantido por compatibilidade).
 
 Para usar outro local:
 
@@ -249,7 +279,7 @@ Use os binários oficiais do projeto LibreHardwareMonitor e mantenha ao lado da 
 
 | Variável | Finalidade | Default |
 |---|---|---|
-| `PCPANEL_LHM_DLL` | Caminho alternativo para `LibreHardwareMonitorLib.dll` | busca em `libs/LibreHardwareMonitorLib.dll` |
+| `PCPANEL_LHM_DLL` | Caminho alternativo para `LibreHardwareMonitorLib.dll` | busca em `libs/LibreHardwareMonitor/LibreHardwareMonitorLib.dll` |
 | `PCPANEL_TELEMETRY_INTERVAL` | Intervalo de coleta em segundos | `0.5` |
 | `PCPANEL_HOST` | Endereço em que o servidor escuta | `0.0.0.0` |
 | `PCPANEL_PORT` | Porta HTTP | `8000` |

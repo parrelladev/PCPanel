@@ -13,4 +13,9 @@ data/
 .vscode/
 .idea/
 
+# LibreHardwareMonitor is installed locally by scripts/install_lhm.ps1.
+# Keep the complete distribution together without versioning third-party binaries.
+libs/LibreHardwareMonitor/
+
+# Compatibility with the legacy flat layout.
 libs/*.dll
