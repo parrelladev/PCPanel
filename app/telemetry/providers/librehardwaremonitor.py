@@ -11,6 +11,7 @@ from .base import TelemetryProvider
 
 _DLL_NAME = "LibreHardwareMonitorLib.dll"
 _DLL_ENV_VAR = "PCPANEL_LHM_DLL"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
 class LibreHardwareMonitorProvider(TelemetryProvider):
@@ -186,35 +187,16 @@ class LibreHardwareMonitorProvider(TelemetryProvider):
             self._resolved_dll_path = dll_path
             return dll_path
 
-        # This file lives at:
-        # backend/app/telemetry/providers/librehardwaremonitor.py
-        # so parents[3] is the backend directory.
-        backend_dir = Path(__file__).resolve().parents[3]
-        candidates = [
-            backend_dir / "libs" / _DLL_NAME,
-            Path.cwd() / "libs" / _DLL_NAME,
-            Path.cwd() / "backend" / "libs" / _DLL_NAME,
-        ]
+        dll_path = (_PROJECT_ROOT / "libs" / _DLL_NAME).resolve()
+        if dll_path.is_file():
+            self._resolved_dll_path = dll_path
+            return dll_path
 
-        seen: set[Path] = set()
-        unique_candidates: list[Path] = []
-        for candidate in candidates:
-            resolved = candidate.resolve()
-            if resolved not in seen:
-                seen.add(resolved)
-                unique_candidates.append(resolved)
-
-        for candidate in unique_candidates:
-            if candidate.is_file():
-                self._resolved_dll_path = candidate
-                return candidate
-
-        searched = "\n".join(f"  - {path}" for path in unique_candidates)
         raise FileNotFoundError(
             "LibreHardwareMonitorLib.dll was not found. "
             "Pass dll_path=..., set the PCPANEL_LHM_DLL environment variable, "
-            "or place the DLL in backend/libs.\n"
-            f"Searched:\n{searched}"
+            "or place the DLL in PROJECT_ROOT/libs.\n"
+            f"Searched:\n  - {dll_path}"
         )
 
     def _require_open_computer(self) -> Any:
@@ -236,14 +218,17 @@ class LibreHardwareMonitorProvider(TelemetryProvider):
         hardware: Any,
         readings: list[SensorReading],
     ) -> None:
+        hardware_identifier = str(hardware.Identifier)
         hardware_name = str(hardware.Name)
         hardware_type = str(hardware.HardwareType)
 
         for sensor in hardware.Sensors:
             readings.append(
                 SensorReading(
+                    hardware_identifier=hardware_identifier,
                     hardware_name=hardware_name,
                     hardware_type=hardware_type,
+                    sensor_identifier=str(sensor.Identifier),
                     sensor_name=str(sensor.Name),
                     sensor_type=str(sensor.SensorType),
                     value=self._to_optional_float(sensor.Value),

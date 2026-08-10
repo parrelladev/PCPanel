@@ -46,20 +46,29 @@ def print_sensors(sensors: list[SensorReading]) -> None:
         return
 
     grouped: dict[
-        tuple[str, str],
+        tuple[str, str, str],
         dict[str, list[SensorReading]],
     ] = defaultdict(lambda: defaultdict(list))
 
     for sensor in sensors:
-        hardware_key = (sensor.hardware_name, sensor.hardware_type)
+        hardware_key = (
+            sensor.hardware_identifier,
+            sensor.hardware_name,
+            sensor.hardware_type,
+        )
         grouped[hardware_key][sensor.sensor_type].append(sensor)
 
     print(f"Detected {len(sensors)} sensor(s).")
 
-    for (hardware_name, hardware_type), sensor_types in grouped.items():
+    for (
+        hardware_identifier,
+        hardware_name,
+        hardware_type,
+    ), sensor_types in grouped.items():
         print()
         print("=" * 80)
         print(f"{hardware_name} [{hardware_type}]")
+        print(f"Identifier: {hardware_identifier}")
         print("=" * 80)
 
         for sensor_type, readings in sensor_types.items():
@@ -75,6 +84,7 @@ def print_sensors(sensors: list[SensorReading]) -> None:
                     f"{format_value(reading.min_value):>12} "
                     f"{format_value(reading.max_value):>12}"
                 )
+                print(f"    Identifier: {reading.sensor_identifier}")
 
 
 def main() -> int:

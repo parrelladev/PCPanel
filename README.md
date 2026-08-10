@@ -152,9 +152,7 @@ A implementação atual do `LibreHardwareMonitorProvider` procura a DLL, nesta o
 
 1. caminho passado diretamente ao construtor `dll_path`;
 2. variável de ambiente `PCPANEL_LHM_DLL`;
-3. `libs/LibreHardwareMonitorLib.dll` relativo ao projeto;
-4. `libs/LibreHardwareMonitorLib.dll` relativo ao diretório atual;
-5. `backend/libs/LibreHardwareMonitorLib.dll`, mantido como caminho alternativo pela implementação atual.
+3. `libs/LibreHardwareMonitorLib.dll` relativo à raiz do projeto.
 
 ### Usar uma DLL em outro local
 
