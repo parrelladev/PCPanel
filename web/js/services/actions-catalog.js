@@ -1,4 +1,4 @@
-import { authenticatedFetch } from "./authenticated-fetch.js";
+import { authenticatedFetch } from "./authenticated-fetch.js?v=m9a10-1";
 
 export const ACTIONS_ERROR = Object.freeze({
   UNAUTHORIZED: "unauthorized",
@@ -21,7 +21,12 @@ export async function loadActions(dependencies = {}) {
     response = await authenticatedFetch(
       "/api/v1/actions",
       {},
-      { storage: dependencies.storage, fetch: dependencies.fetch },
+      {
+        storage: dependencies.storage,
+        fetch: dependencies.fetch,
+        timeoutMs: dependencies.timeoutMs,
+        AbortController: dependencies.AbortController,
+      },
     );
   } catch {
     throw new ActionsCatalogError(ACTIONS_ERROR.OFFLINE);

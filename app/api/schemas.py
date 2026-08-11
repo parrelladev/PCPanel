@@ -99,6 +99,7 @@ class MetricsResponse(BaseModel):
 
     sequence: int
     captured_at: datetime
+    hardware_models: dict[str, str]
     metrics: dict[str, MetricReadingResponse]
 
     @classmethod
@@ -106,6 +107,7 @@ class MetricsResponse(BaseModel):
         return cls(
             sequence=snapshot.sequence,
             captured_at=snapshot.captured_at,
+            hardware_models=dict(snapshot.hardware_models),
             metrics={
                 reading.key: MetricReadingResponse.from_reading(reading)
                 for reading in snapshot.metrics

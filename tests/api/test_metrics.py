@@ -78,8 +78,16 @@ def test_metrics_returns_canonical_map_from_latest_raw_snapshot() -> None:
                 "/nvidiagpu/0/load/0", "GPU Core", None,
             ),
             sensor(
+                "GpuNvidia", "/nvidiagpu/0", "SmallData",
+                "/nvidiagpu/0/smalldata/1", "GPU Memory Used", 2048.0,
+            ),
+            sensor(
                 "Memory", "/memory", "Load",
                 "/memory/load/0", "Memory", 63.5,
+            ),
+            sensor(
+                "Memory", "/memory", "Data",
+                "/memory/data/0", "Memory Used", 20.0,
             ),
         ),
     )
@@ -90,37 +98,23 @@ def test_metrics_returns_canonical_map_from_latest_raw_snapshot() -> None:
         response = client.get("/api/v1/metrics")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "sequence": 152,
-        "captured_at": "2026-08-10T14:55:00Z",
-        "metrics": {
-            "cpu.temperature": {
-                "value": 54.0,
-                "unit": "celsius",
-                "source_sensor_identifier": "/intelcpu/0/temperature/0",
-            },
-            "cpu.load": {
-                "value": 17.3,
-                "unit": "percent",
-                "source_sensor_identifier": "/intelcpu/0/load/0",
-            },
-            "gpu.temperature": {
-                "value": 42.0,
-                "unit": "celsius",
-                "source_sensor_identifier": "/nvidiagpu/0/temperature/0",
-            },
-            "gpu.load": {
-                "value": None,
-                "unit": "percent",
-                "source_sensor_identifier": None,
-            },
-            "memory.load": {
-                "value": 63.5,
-                "unit": "percent",
-                "source_sensor_identifier": "/memory/load/0",
-            },
-        },
+    payload = response.json()
+    assert payload["sequence"] == 152
+    assert payload["captured_at"] == "2026-08-10T14:55:00Z"
+    assert payload["hardware_models"] == {
+        "cpu": "/intelcpu/0",
+        "gpu": "/nvidiagpu/0",
     }
+    assert payload["metrics"]["cpu.temperature"] == {
+        "value": 54.0,
+        "unit": "celsius",
+        "source_sensor_identifier": "/intelcpu/0/temperature/0",
+    }
+    assert payload["metrics"]["gpu.memory.used"]["value"] == 2048.0
+    assert payload["metrics"]["memory.used"]["value"] == 20480.0
+    assert payload["metrics"]["cpu.clock"]["value"] is None
+    assert payload["metrics"]["gpu.temperature.hotspot"]["value"] is None
+    assert payload["metrics"]["memory.total"]["value"] is None
     assert manager.get_snapshot_calls == 1
     assert manager.wait_for_snapshot_calls == 0
     assert manager.start_calls == 1

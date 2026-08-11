@@ -39,6 +39,10 @@
 .mood { display: inline-flex; align-items: center; gap: 6px; min-height: 23px; margin-bottom: clamp(8px, 1.5vw, 14px); padding: 0 9px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--thermal-color) 11%, transparent); color: var(--thermal-color); font-size: .65rem; font-weight: 800; transition: color var(--medium) var(--ease), background var(--medium) var(--ease); }
 .mood::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 .metric-caption { color: var(--text-muted); font-size: .57rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.secondary-reading { display: flex; align-items: baseline; gap: 6px; margin-top: var(--space-3); color: var(--text-primary); }
+.secondary-reading[hidden] { display: none; }
+.secondary-reading strong { font-size: clamp(1rem, 2.4vw, 1.35rem); font-variant-numeric: tabular-nums; }
+.secondary-reading span { color: var(--text-muted); font-size: .57rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
 .memory-card { --meter-color: var(--ram); min-height: 0; display: grid; grid-template-rows: auto 1fr auto auto; align-items: center; gap: var(--space-3); padding: clamp(16px, 3vw, 28px); border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface); }
 .memory-card h3 { margin: 0; color: var(--text-primary); font-size: clamp(.9rem, 2vw, 1.15rem); letter-spacing: .12em; }.memory-card__numbers { align-self: end; color: var(--text-secondary); font-size: .72rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }.memory-card__percent { font-size: clamp(2.8rem, 8vw, 5rem); line-height: .9; letter-spacing: -.07em; }.meter { height: 9px; overflow: hidden; border-radius: var(--radius-pill); background: #292c33; }.meter i { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--meter-color); transition: width var(--slow) var(--ease), background var(--medium) var(--ease); }
 
@@ -78,4 +82,77 @@
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+/* Approved POC visual skin. Structural behavior remains owned by the live UI. */
+.brand { align-items: baseline; gap: 10px; font-weight: 600; }
+.brand strong { font-size: 18px; letter-spacing: -.03em; }
+.brand > span { color: var(--text-muted); font-size: 12px; font-weight: 400; letter-spacing: 0; }
+.brand__mark { display: none; }
+
+.connection { min-width: 0; min-height: 36px; height: 36px; padding-inline: 12px; background: var(--surface-elevated); font-size: 12px; font-weight: 600; }
+.connection__dot { width: 8px; height: 8px; background: var(--warning); }
+.connection--connected .connection__dot { background: var(--accent); box-shadow: 0 0 0 4px rgb(183 255 74 / 8%); }
+.connection--offline .connection__dot { background: var(--danger); box-shadow: 0 0 0 4px rgb(239 68 68 / 8%); }
+.fullscreen-toggle { min-height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: transparent; color: var(--text-secondary); font-size: 12px; font-weight: 600; cursor: pointer; }
+.fullscreen-toggle:active { background: var(--surface-elevated); }
+.fullscreen-toggle[hidden] { display: none; }
+:root[data-theme="light"] .bottom-nav__item.is-active { background: #111; color: #fff; }
+:root[data-theme="light"] .app-card__icon { background: #111; color: #b7ff4a; }
+:root[data-theme="light"] .connection--connected .connection__dot { box-shadow: 0 0 0 4px rgb(101 163 13 / 12%); }
+
+.hardware-card { --vendor-color: var(--text-muted); display: grid; grid-template-rows: auto auto; align-content: start; min-width: 0; padding: 18px; border-radius: var(--radius-lg); border-top-color: color-mix(in srgb, var(--vendor-color) 72%, var(--border)); }
+.hardware-card::before { display: none; }
+.hardware-card__header { margin-bottom: var(--space-4); }
+.hardware-card__title { display: flex; flex-direction: column; }
+.hardware-card__title h2 { order: -1; margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .04em; }
+.vendor-badge { display: inline-flex !important; align-items: center; min-height: 18px; margin: 0 0 0 8px !important; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--vendor-color) 40%, transparent); border-radius: var(--radius-pill); background: color-mix(in srgb, var(--vendor-color) 10%, transparent); color: var(--vendor-color) !important; font-size: 9px !important; font-weight: 600 !important; letter-spacing: .04em !important; vertical-align: middle; }
+.hardware-card__title span { margin-top: 3px; font-size: 11px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.temp-wrap { text-align: right; }
+.primary-reading { display: block; margin: 0; color: var(--thermal-color); font-size: clamp(34px, 6vw, 54px); font-weight: 600; line-height: .92; letter-spacing: -.06em; }
+.temp-state { display: block; margin-top: 5px; color: var(--thermal-color); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.hardware-card__content { display: block; }
+.load-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: var(--space-3); }
+.hardware-card .meter { height: 10px; background: var(--surface-soft); }
+.hardware-card .meter i { background: var(--accent); }
+.load-value { min-width: 48px; text-align: right; font-size: 18px; font-weight: 600; letter-spacing: -.03em; }
+.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin-top: 18px; }
+.metric span { display: block; color: var(--text-muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.metric strong { display: block; overflow: hidden; margin-top: 4px; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+
+.memory-card { min-height: 0; grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 8px 16px; padding: 14px 16px; border-radius: var(--radius-lg); }
+.memory-card > div:first-child { grid-column: 1; grid-row: 1; }
+.memory-card h3 { margin: 0; font-size: 10px; font-weight: 500; letter-spacing: .08em; color: var(--text-muted); }
+.memory-card__numbers { display: none; }
+.memory-card__percent { grid-column: 1; grid-row: 2; font-size: 16px; font-weight: 600; line-height: 1; letter-spacing: 0; }
+.memory-card .meter { grid-column: 2; grid-row: 1 / span 2; width: 120px; height: 8px; align-self: center; background: var(--surface-soft); }
+.memory-card .meter i { background: var(--accent); }
+
+.bottom-nav { width: min(430px, 100%); height: 54px; padding: 5px; background: var(--surface-elevated); }
+.bottom-nav__item { min-height: 44px; font-size: 12px; font-weight: 600; }
+.bottom-nav__item.is-active { background: #f5f5f5; color: #111; }
+
+.app-card { min-height: 118px; place-items: start; align-content: stretch; gap: 0; padding: 16px; text-align: left; border-radius: var(--radius-lg); }
+.app-card__icon { width: 36px; height: 36px; margin-bottom: 22px; color: var(--accent); background: #0a0a0a; border-radius: 10px; }
+.app-card strong { font-size: 14px; text-align: left; }
+.app-card__feedback { min-height: 0; margin-top: 3px; place-items: start; font-size: 10px; text-align: left; }
+.app-card:active { transform: scale(.985); border-color: rgb(183 255 74 / 28%); }
+.apps-refresh { border-color: var(--border); background: transparent; font-size: 12px; }
+
+.system-card { min-height: 118px; padding: 18px; border-radius: var(--radius-lg); }
+.system-card h2 { font-size: 10px; font-weight: 500; }
+.system-card strong { font-size: clamp(1rem, 3vw, 1.2rem); font-weight: 600; }
+
+@media (max-width: 760px) {
+  .hardware-card { padding: 14px; }
+  .memory-card .meter { width: 86px; }
+}
+
+@media (orientation: landscape) and (max-height: 620px) {
+  .hardware-card { padding: 14px 16px; }
+  .hardware-card__header { margin-bottom: 12px; }
+  .primary-reading { font-size: clamp(34px, 7vh, 46px); }
+  .metrics { margin-top: 12px; }
+  .metric { padding-top: 8px; }
+  .memory-card { padding-block: 10px; }
 }

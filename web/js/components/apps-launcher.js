@@ -1,9 +1,9 @@
-import { ACTIONS_ERROR, ActionsCatalogError, loadActions } from "../services/actions-catalog.js";
+import { ACTIONS_ERROR, ActionsCatalogError, loadActions } from "../services/actions-catalog.js?v=m9a10-1";
 import {
   EXECUTION_ERROR,
   ActionExecutionError,
   executeAction,
-} from "../services/action-execution.js";
+} from "../services/action-execution.js?v=m9a10-1";
 
 const FEEDBACK_DURATION_MS = 1800;
 const EXECUTION_MESSAGES = Object.freeze({
@@ -124,7 +124,7 @@ export function createAppsLauncher(root, dependencies = {}) {
     view.timer = null;
     executions.set(view.action.id, state);
     view.button.dataset.executionState = state;
-    view.button.disabled = state === "executing";
+    view.button.disabled = state !== "idle";
     view.button.setAttribute("aria-label", `${view.action.label}: ${message}`);
     view.icon.textContent = icon;
     view.feedback.textContent = message;
@@ -180,7 +180,7 @@ export function createExecutionState() {
   return Object.freeze({
     get: (actionId) => states.get(actionId) ?? "idle",
     begin(actionId) {
-      if ((states.get(actionId) ?? "idle") === "executing") return false;
+      if ((states.get(actionId) ?? "idle") !== "idle") return false;
       states.set(actionId, "executing");
       return true;
     },

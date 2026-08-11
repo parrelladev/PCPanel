@@ -9,6 +9,9 @@ export function formatMetric(reading) {
   if (reading === null) return "--";
   if (reading.unit === "celsius") return `${Math.round(reading.value)} °C`;
   if (reading.unit === "percent") return `${Math.round(reading.value)} %`;
+  if (reading.unit === "megabyte") return `${Math.round(reading.value)} MB`;
+  if (reading.unit === "megahertz") return `${(reading.value / 1000).toFixed(2)} GHz`;
+  if (reading.unit === "watt") return `${Math.round(reading.value)} W`;
   return String(reading.value);
 }
 

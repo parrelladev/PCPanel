@@ -21,7 +21,7 @@ def test_root_serves_frontend_html() -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "Performance do hardware" in response.text
-    assert 'type="module" src="/js/app.js"' in response.text
+    assert 'type="module" src="/js/app.js?v=m9a10-20260810-1"' in response.text
 
 
 def test_frontend_css_is_available() -> None:
@@ -30,9 +30,9 @@ def test_frontend_css_is_available() -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/css")
-    assert '@import url("/css/variables.css")' in response.text
-    assert '@import url("/css/layout.css")' in response.text
-    assert '@import url("/css/components.css")' in response.text
+    assert '@import url("/css/variables.css?v=m9a5-20260810-1")' in response.text
+    assert '@import url("/css/layout.css?v=m9a5-20260810-1")' in response.text
+    assert '@import url("/css/components.css?v=m9a5-20260810-1")' in response.text
 
 
 def test_frontend_javascript_is_available() -> None:
@@ -58,12 +58,15 @@ def test_frontend_module_files_are_available() -> None:
         "/js/services/pairing.js",
         "/js/services/actions-catalog.js",
         "/js/services/action-execution.js",
+        "/js/services/fullscreen.js",
+        "/js/services/theme-preference.js",
         "/js/components/cat-gauge.js",
         "/js/components/apps-launcher.js",
         "/js/components/system-status.js",
         "/js/components/dashboard-metrics.js",
         "/js/components/pairing-view.js",
         "/js/components/thermal-state.js",
+        "/js/components/hardware-vendor.js",
     )
 
     with _client() as client:
@@ -89,6 +92,22 @@ def test_frontend_websocket_uses_only_canonical_metrics_contract() -> None:
     assert '"offline"' in response.text
     assert '"visibilitychange"' in response.text
     assert "RECONNECT_DELAYS_MS" in response.text
+
+
+def test_frontend_exposes_installable_fullscreen_manifest_and_icon() -> None:
+    with _client() as client:
+        html = client.get("/")
+        manifest = client.get("/manifest.webmanifest")
+        icon = client.get("/assets/pcpanel-icon.svg")
+
+    assert 'rel="manifest" href="/manifest.webmanifest"' in html.text
+    assert 'id="fullscreen-toggle"' in html.text
+    assert manifest.status_code == 200
+    assert manifest.headers["content-type"].startswith("application/manifest+json")
+    assert manifest.json()["display"] == "fullscreen"
+    assert manifest.json()["start_url"] == "/"
+    assert icon.status_code == 200
+    assert "svg" in icon.headers["content-type"]
 
 
 def test_frontend_has_no_raw_sensor_resolution_terms() -> None:

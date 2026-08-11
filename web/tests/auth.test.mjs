@@ -28,6 +28,9 @@ import {
 } from "../js/components/system-status.js";
 import { formatMetric, metricReading } from "../js/components/dashboard-metrics.js";
 import { startWebSocketTelemetry } from "../js/services/websocket-telemetry.js";
+import { setupFullscreen } from "../js/services/fullscreen.js";
+import { setupThemePreference } from "../js/services/theme-preference.js";
+import { hardwareVendor } from "../js/components/hardware-vendor.js";
 import {
   AUTH_STATUS,
   TOKEN_STORAGE_KEY,
@@ -272,8 +275,11 @@ test("execution state is independent per action and blocks only the same double 
   states.set("two", "error");
   assert.equal(states.get("one"), "success");
   assert.equal(states.get("two"), "error");
+  assert.equal(states.begin("one"), false);
+  assert.equal(states.begin("two"), false);
   states.set("one", "idle");
-  assert.equal(states.get("one"), "idle");
+  assert.equal(states.begin("one"), true);
+  assert.equal(states.get("one"), "executing");
   assert.equal(states.get("two"), "error");
 });
 
@@ -297,6 +303,8 @@ test("dashboard formats canonical values and never renders invalid numbers", () 
   assert.equal(formatMetric(metricReading(metrics, "cpu.load")), "--");
   assert.equal(formatMetric(metricReading(metrics, "gpu.load")), "--");
   assert.equal(formatMetric(metricReading(metrics, "memory.load")), "--");
+  assert.equal(formatMetric({ value: 2186.4, unit: "megabyte" }), "2186 MB");
+  assert.equal(formatMetric({ value: 15257.6, unit: "megabyte" }), "15258 MB");
 });
 
 test("websocket updates snapshots, avoids duplicate sockets, and reconnects on visibility", () => {
@@ -378,6 +386,92 @@ test("system actions status distinguishes counts, disabled API, and offline", ()
   assert.equal(actionsLabel({ status: "empty", count: 0 }), "0 disponíveis");
   assert.equal(actionsLabel({ status: "unavailable", count: null }), "Launcher desabilitado");
   assert.equal(actionsLabel({ status: "offline", count: null }), "Indisponível");
+});
+
+test("authenticated fetch times out without removing the stored credential", async () => {
+  const storage = new MemoryStorage();
+  storeToken("secret", storage);
+
+  await assert.rejects(
+    authenticatedFetch("/api/v1/actions", {}, {
+      storage,
+      timeoutMs: 5,
+      fetch: (_url, options) => new Promise((_resolve, reject) => {
+        options.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      }),
+    }),
+    { name: "AbortError" },
+  );
+
+  assert.equal(getStoredToken(storage), "secret");
+  assert.equal(getAuthState().status, AUTH_STATUS.OFFLINE);
+});
+
+test("fullscreen control stays hidden when unsupported and toggles when supported", async () => {
+  const unsupportedButton = { hidden: false };
+  assert.deepEqual(setupFullscreen(unsupportedButton, { documentElement: {} }), { supported: false });
+  assert.equal(unsupportedButton.hidden, true);
+
+  const listeners = new Map();
+  const button = {
+    hidden: true,
+    textContent: "",
+    attributes: {},
+    addEventListener(name, listener) { listeners.set(`button:${name}`, listener); },
+    setAttribute(name, value) { this.attributes[name] = value; },
+  };
+  const fakeDocument = {
+    fullscreenElement: null,
+    documentElement: {
+      async requestFullscreen() { fakeDocument.fullscreenElement = this; },
+    },
+    async exitFullscreen() { this.fullscreenElement = null; },
+    addEventListener(name, listener) { listeners.set(`document:${name}`, listener); },
+  };
+
+  assert.deepEqual(setupFullscreen(button, fakeDocument), { supported: true });
+  assert.equal(button.hidden, false);
+  await listeners.get("button:click")();
+  listeners.get("document:fullscreenchange")();
+  assert.equal(button.textContent, "Sair da tela cheia");
+  await listeners.get("button:click")();
+  listeners.get("document:fullscreenchange")();
+  assert.equal(button.textContent, "Tela cheia");
+});
+
+test("theme preference follows the system and reacts to changes", () => {
+  let changeListener;
+  const mediaQuery = {
+    matches: true,
+    addEventListener(name, listener) { if (name === "change") changeListener = listener; },
+  };
+  const themeMeta = {
+    content: null,
+    setAttribute(name, value) { if (name === "content") this.content = value; },
+  };
+  const fakeDocument = {
+    documentElement: { dataset: {} },
+    querySelector() { return themeMeta; },
+  };
+
+  assert.deepEqual(setupThemePreference({
+    window: { matchMedia: () => mediaQuery },
+    document: fakeDocument,
+  }), { theme: "light" });
+  assert.equal(fakeDocument.documentElement.dataset.theme, "light");
+  assert.equal(themeMeta.content, "#ffffff");
+
+  changeListener({ matches: false });
+  assert.equal(fakeDocument.documentElement.dataset.theme, "dark");
+  assert.equal(themeMeta.content, "#0f0f0f");
+});
+
+test("hardware vendor colors are independent and deterministic", () => {
+  assert.deepEqual(hardwareVendor("Intel Core i5-14600KF"), { name: "Intel", color: "#0071c5" });
+  assert.deepEqual(hardwareVendor("AMD Ryzen 7 7800X3D"), { name: "AMD", color: "#ed1c24" });
+  assert.deepEqual(hardwareVendor("AMD Radeon RX 7900 XTX"), { name: "AMD", color: "#ed1c24" });
+  assert.deepEqual(hardwareVendor("NVIDIA GeForce RTX 3060 Ti"), { name: "NVIDIA", color: "#76b900" });
+  assert.deepEqual(hardwareVendor(null), { name: "Hardware", color: "#68686f" });
 });
 
 test.afterEach(() => {

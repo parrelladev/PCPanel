@@ -1,16 +1,16 @@
-import { createCatGauge } from "./components/cat-gauge.js";
 import {
-  MOOD_LABELS,
-  MoodTracker,
   POLICIES,
   thermalPresentation,
 } from "./components/thermal-state.js";
 import { startWebSocketTelemetry } from "./services/websocket-telemetry.js";
-import { bootstrapAuthentication } from "./services/auth-bootstrap.js";
+import { bootstrapAuthentication } from "./services/auth-bootstrap.js?v=m9a10-1";
 import { AUTH_STATUS, subscribeAuth } from "./state/auth.js";
 import { createPairingView } from "./components/pairing-view.js";
-import { createAppsLauncher } from "./components/apps-launcher.js";
+import { createAppsLauncher } from "./components/apps-launcher.js?v=m9a10-1";
 import { createSystemStatus } from "./components/system-status.js";
+import { setupFullscreen } from "./services/fullscreen.js";
+import { setupThemePreference } from "./services/theme-preference.js";
+import { hardwareVendor } from "./components/hardware-vendor.js";
 import { clampPercent, formatMetric, metricReading } from "./components/dashboard-metrics.js";
 import {
   setConnection,
@@ -21,15 +21,24 @@ import {
 const METRIC_KEYS = Object.freeze({
   cpuTemperature: "cpu.temperature",
   cpuLoad: "cpu.load",
+  cpuClock: "cpu.clock",
+  cpuPower: "cpu.power",
+  cpuPeakTemperature: "cpu.temperature.peak",
   gpuTemperature: "gpu.temperature",
   gpuLoad: "gpu.load",
+  gpuClock: "gpu.clock",
+  gpuHotspotTemperature: "gpu.temperature.hotspot",
+  gpuMemoryUsed: "gpu.memory.used",
+  gpuMemoryTotal: "gpu.memory.total",
   memoryLoad: "memory.load",
+  memoryUsed: "memory.used",
+  memoryTotal: "memory.total",
 });
 
 const COLORS = Object.freeze({
-  cpu: "#3b82f6",
-  gpu: "#84cc16",
-  memory: "#8b5cf6",
+  cpu: "#84e35b",
+  gpu: "#84e35b",
+  memory: "#b7ff4a",
 });
 
 const hardwareGrid = document.querySelector("#hardware-grid");
@@ -45,6 +54,7 @@ const authRetry = document.querySelector("#auth-retry");
 const pairingRoot = document.querySelector("#pairing-view");
 const appsRoot = document.querySelector("#apps-view");
 const systemRoot = document.querySelector("#system-view");
+const fullscreenToggle = document.querySelector("#fullscreen-toggle");
 let telemetryStarted = false;
 let previousAuthStatus = null;
 
@@ -61,6 +71,8 @@ const appsLauncher = createAppsLauncher(appsRoot);
 const systemStatus = createSystemStatus(systemRoot, appsLauncher);
 
 setupNavigation();
+setupThemePreference();
+setupFullscreen(fullscreenToggle);
 authRetry.addEventListener("click", bootstrapAuthentication);
 subscribe(render);
 subscribeAuth(renderAuth);
@@ -109,28 +121,30 @@ function createHardwareCard(kind, label, color) {
   article.style.setProperty("--brand-color", color);
   article.innerHTML = `
     <header class="hardware-card__header">
-      <div class="hardware-card__title"><span>${label}</span><h2>${label}</h2></div>
-      <span class="metric-status">Métricas canônicas</span>
+      <div class="hardware-card__title"><h2>${label}<span class="vendor-badge">Hardware</span></h2><span class="hardware-model">Modelo indisponível</span></div>
+      <div class="temp-wrap"><strong class="primary-reading">--</strong><span class="temp-state">Indisponível</span></div>
     </header>
     <div class="hardware-card__content">
-      <div data-cat></div>
-      <div>
-        <div class="primary-reading"><strong>--</strong><span>Indisponível</span></div>
-        <div class="mood">Aguardando</div>
-        <div class="metric-caption">Temperatura</div>
+      <div class="load-row"><div class="meter"><i></i></div><strong class="load-value">--</strong></div>
+      <div class="metrics">
+        <div class="metric"><span>${kind === "cpu" ? "Clock" : "Clock"}</span><strong data-metric="clock">--</strong></div>
+        <div class="metric"><span>${kind === "cpu" ? "Power" : "Hotspot"}</span><strong data-metric="detail">--</strong></div>
+        <div class="metric"><span>${kind === "cpu" ? "Peak" : "VRAM"}</span><strong data-metric="last">--</strong></div>
       </div>
     </div>`;
 
-  const cat = createCatGauge({ kind, label });
-  article.querySelector("[data-cat]").replaceWith(cat.element);
   return {
     element: article,
-    temperature: article.querySelector(".primary-reading strong"),
-    thermalLabel: article.querySelector(".primary-reading span"),
-    mood: article.querySelector(".mood"),
-    cat,
+    temperature: article.querySelector(".primary-reading"),
+    thermalLabel: article.querySelector(".temp-state"),
+    loadFill: article.querySelector(".meter i"),
+    loadValue: article.querySelector(".load-value"),
+    model: article.querySelector(".hardware-model"),
+    vendor: article.querySelector(".vendor-badge"),
+    clock: article.querySelector('[data-metric="clock"]'),
+    detail: article.querySelector('[data-metric="detail"]'),
+    last: article.querySelector('[data-metric="last"]'),
     color,
-    moodTracker: new MoodTracker(),
   };
 }
 
@@ -139,10 +153,9 @@ function createMemoryCard() {
   article.className = "memory-card";
   article.style.setProperty("--meter-color", COLORS.memory);
   article.innerHTML = `
-    <h3>RAM</h3>
-    <span class="memory-card__numbers">Uso da memória</span>
-    <div class="meter" role="meter" aria-label="Uso da RAM" aria-valuemin="0" aria-valuemax="100"><i></i></div>
-    <strong class="memory-card__percent">--</strong>`;
+    <div><h3>RAM</h3><span class="memory-card__numbers">Memória utilizada</span></div>
+    <strong class="memory-card__percent">--</strong>
+    <div class="meter" role="meter" aria-label="Uso da RAM" aria-valuemin="0" aria-valuemax="100"><i></i></div>`;
   return {
     element: article,
     meter: article.querySelector(".meter"),
@@ -161,38 +174,59 @@ function render(state) {
     metricReading(metrics, METRIC_KEYS.cpuTemperature),
     metricReading(metrics, METRIC_KEYS.cpuLoad),
     POLICIES.cpu,
+    {
+      model: state.metricSnapshot.hardware_models?.cpu,
+      clock: metricReading(metrics, METRIC_KEYS.cpuClock),
+      detail: metricReading(metrics, METRIC_KEYS.cpuPower),
+      last: metricReading(metrics, METRIC_KEYS.cpuPeakTemperature),
+    },
   );
   renderHardware(
     cardViews.gpu,
     metricReading(metrics, METRIC_KEYS.gpuTemperature),
     metricReading(metrics, METRIC_KEYS.gpuLoad),
     POLICIES.gpu,
+    {
+      model: state.metricSnapshot.hardware_models?.gpu,
+      clock: metricReading(metrics, METRIC_KEYS.gpuClock),
+      detail: metricReading(metrics, METRIC_KEYS.gpuHotspotTemperature),
+      memoryUsed: metricReading(metrics, METRIC_KEYS.gpuMemoryUsed),
+      memoryTotal: metricReading(metrics, METRIC_KEYS.gpuMemoryTotal),
+    },
   );
-  renderMemory(metricReading(metrics, METRIC_KEYS.memoryLoad));
+  renderMemory(
+    metricReading(metrics, METRIC_KEYS.memoryLoad),
+    metricReading(metrics, METRIC_KEYS.memoryUsed),
+    metricReading(metrics, METRIC_KEYS.memoryTotal),
+  );
 }
 
-function renderHardware(view, temperatureReading, loadReading, policy) {
+function renderHardware(view, temperatureReading, loadReading, policy, details) {
   const temperature = temperatureReading?.value ?? null;
   const load = loadReading?.value ?? null;
   const heat = temperature === null
     ? { stress: 0, label: "Indisponível", color: view.color }
     : thermalPresentation(temperature, policy, view.color);
-  const score = Math.max(heat.stress, (load ?? 0) * 0.45);
-  const moodKey = view.moodTracker.update(score);
-
   view.element.style.setProperty("--thermal-color", heat.color);
   view.temperature.textContent = formatMetric(temperatureReading);
   view.thermalLabel.textContent = heat.label;
-  view.mood.textContent = temperature === null && load === null
-    ? "Sem dados"
-    : MOOD_LABELS[moodKey];
-  view.cat.update({ usage: load, mood: moodKey, color: heat.color });
+  view.loadValue.textContent = formatMetric(loadReading);
+  view.loadFill.style.width = `${load === null ? 0 : clampPercent(load)}%`;
+  view.model.textContent = details.model ?? "Modelo indisponível";
+  const vendor = hardwareVendor(details.model);
+  view.vendor.textContent = vendor.name;
+  view.element.style.setProperty("--vendor-color", vendor.color);
+  view.clock.textContent = formatMetric(details.clock);
+  view.detail.textContent = formatMetric(details.detail);
+  view.last.textContent = details.memoryUsed
+    ? formatMemoryPair(details.memoryUsed, details.memoryTotal)
+    : formatMetric(details.last);
 }
 
-function renderMemory(reading) {
-  const load = reading?.value ?? null;
+function renderMemory(loadReading, usedReading, totalReading) {
+  const load = loadReading?.value ?? null;
   const width = load === null ? 0 : clampPercent(load);
-  memoryView.percent.textContent = formatMetric(reading);
+  memoryView.percent.textContent = formatMemoryPair(usedReading, totalReading);
   memoryView.fill.style.width = `${width}%`;
   if (load === null) {
     memoryView.meter.removeAttribute("aria-valuenow");
@@ -201,6 +235,13 @@ function renderMemory(reading) {
     memoryView.meter.setAttribute("aria-valuenow", String(Math.round(width)));
     memoryView.meter.removeAttribute("aria-valuetext");
   }
+}
+
+function formatMemoryPair(used, total) {
+  if (used === null) return "--";
+  const usedValue = Math.round(used.value);
+  if (total === null) return `${usedValue} MB`;
+  return `${usedValue} / ${Math.round(total.value)} MB`;
 }
 
 function renderConnection(status) {

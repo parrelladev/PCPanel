@@ -4,13 +4,25 @@ from datetime import datetime, timezone
 
 from app.telemetry.metrics import (
     CELSIUS,
+    CPU_CLOCK,
     CPU_LOAD,
+    CPU_PEAK_TEMPERATURE,
+    CPU_POWER,
     CPU_TEMPERATURE,
+    GPU_CLOCK,
+    GPU_HOTSPOT_TEMPERATURE,
     GPU_LOAD,
+    GPU_MEMORY_TOTAL,
+    GPU_MEMORY_USED,
     GPU_TEMPERATURE,
     INITIAL_METRIC_KEYS,
+    MEGABYTE,
+    MEGAHERTZ,
     MEMORY_LOAD,
+    MEMORY_TOTAL,
+    MEMORY_USED,
     PERCENT,
+    WATT,
     MetricReading,
     MetricResolver,
     MetricSnapshot,
@@ -22,9 +34,18 @@ CAPTURED_AT = datetime(2026, 8, 10, 18, 30, tzinfo=timezone.utc)
 EXPECTED_UNITS = {
     CPU_TEMPERATURE: CELSIUS,
     CPU_LOAD: PERCENT,
+    CPU_CLOCK: MEGAHERTZ,
+    CPU_POWER: WATT,
+    CPU_PEAK_TEMPERATURE: CELSIUS,
     GPU_TEMPERATURE: CELSIUS,
     GPU_LOAD: PERCENT,
+    GPU_CLOCK: MEGAHERTZ,
+    GPU_HOTSPOT_TEMPERATURE: CELSIUS,
+    GPU_MEMORY_USED: MEGABYTE,
+    GPU_MEMORY_TOTAL: MEGABYTE,
     MEMORY_LOAD: PERCENT,
+    MEMORY_USED: MEGABYTE,
+    MEMORY_TOTAL: MEGABYTE,
 }
 
 
@@ -37,6 +58,7 @@ def sensor(
     value: float | None,
     *,
     hardware_name: str | None = None,
+    max_value: float | None = None,
 ) -> SensorReading:
     return SensorReading(
         hardware_identifier=hardware_identifier,
@@ -47,7 +69,7 @@ def sensor(
         sensor_type=sensor_type,
         value=value,
         min_value=None,
-        max_value=None,
+        max_value=max_value,
     )
 
 
@@ -295,3 +317,63 @@ def test_memory_load_uses_system_memory_and_never_gpu_memory() -> None:
 
     assert_reading(readings, MEMORY_LOAD, 64.0, "/memory/load/physical")
     assert readings[MEMORY_LOAD].source_sensor_identifier != "/gpu/0/load/memory"
+
+
+def test_resolves_used_system_memory_and_dedicated_gpu_memory() -> None:
+    readings = resolve(
+        sensor("Memory", "/ram", "Data", "/ram/data/0", "Memory Used", 14.9),
+        sensor("Memory", "/vram", "Data", "/vram/data/2", "Memory Used", 18.1),
+        sensor(
+            "GpuNvidia", "/gpu/0", "SmallData",
+            "/gpu/0/smalldata/1", "GPU Memory Used", 2186.0,
+        ),
+        sensor(
+            "GpuNvidia", "/gpu/0", "SmallData",
+            "/gpu/0/smalldata/3", "D3D Dedicated Memory Used", 2027.875,
+        ),
+    )
+
+    assert_reading(readings, MEMORY_USED, 15257.6, "/ram/data/0")
+    assert_reading(readings, GPU_MEMORY_USED, 2186.0, "/gpu/0/smalldata/1")
+
+
+def test_resolves_complete_product_hardware_contract() -> None:
+    raw = snapshot(
+        sensor(
+            "Cpu", "/cpu/0", "Temperature", "/cpu/0/temp/package",
+            "CPU Package", 42.0, hardware_name="Intel Core i5-14600KF", max_value=57.0,
+        ),
+        sensor("Cpu", "/cpu/0", "Load", "/cpu/0/load/total", "CPU Total", 23.0, hardware_name="Intel Core i5-14600KF"),
+        sensor("Cpu", "/cpu/0", "Clock", "/cpu/0/clock/1", "P-Core #1", 5291.5, hardware_name="Intel Core i5-14600KF"),
+        sensor("Cpu", "/cpu/0", "Power", "/cpu/0/power/package", "CPU Package", 24.0, hardware_name="Intel Core i5-14600KF"),
+        sensor(
+            "GpuNvidia", "/gpu/0", "Temperature", "/gpu/0/temp/core",
+            "GPU Core", 37.0, hardware_name="NVIDIA GeForce RTX 3060 Ti",
+        ),
+        sensor("GpuNvidia", "/gpu/0", "Temperature", "/gpu/0/temp/hotspot", "GPU Hot Spot", 48.5, hardware_name="NVIDIA GeForce RTX 3060 Ti"),
+        sensor("GpuNvidia", "/gpu/0", "Load", "/gpu/0/load/core", "GPU Core", 22.0, hardware_name="NVIDIA GeForce RTX 3060 Ti"),
+        sensor("GpuNvidia", "/gpu/0", "Clock", "/gpu/0/clock/core", "GPU Core", 210.0, hardware_name="NVIDIA GeForce RTX 3060 Ti"),
+        sensor("GpuNvidia", "/gpu/0", "SmallData", "/gpu/0/memory/used", "GPU Memory Used", 1040.0, hardware_name="NVIDIA GeForce RTX 3060 Ti"),
+        sensor("GpuNvidia", "/gpu/0", "SmallData", "/gpu/0/memory/total", "GPU Memory Total", 8192.0, hardware_name="NVIDIA GeForce RTX 3060 Ti"),
+        sensor("Memory", "/ram", "Load", "/ram/load", "Memory", 36.9, hardware_name="Total Memory"),
+        sensor("Memory", "/ram", "Data", "/ram/used", "Memory Used", 11.75, hardware_name="Total Memory"),
+        sensor("Memory", "/ram", "Data", "/ram/available", "Memory Available", 20.25, hardware_name="Total Memory"),
+        sensor("Memory", "/memory/0", "Data", "/memory/0/capacity", "Capacity", 16.0, hardware_name="DIMM #1"),
+        sensor("Memory", "/memory/1", "Data", "/memory/1/capacity", "Capacity", 16.0, hardware_name="DIMM #2"),
+        sensor("Memory", "/vram", "Data", "/vram/used", "Memory Used", 99.0, hardware_name="Virtual Memory"),
+    )
+    result = MetricResolver().resolve(raw)
+    readings = readings_by_key(result)
+
+    assert dict(result.hardware_models) == {
+        "cpu": "Intel Core i5-14600KF",
+        "gpu": "NVIDIA GeForce RTX 3060 Ti",
+    }
+    assert_reading(readings, CPU_CLOCK, 5291.5, "/cpu/0/clock/1")
+    assert_reading(readings, CPU_POWER, 24.0, "/cpu/0/power/package")
+    assert_reading(readings, CPU_PEAK_TEMPERATURE, 57.0, "/cpu/0/temp/package")
+    assert_reading(readings, GPU_CLOCK, 210.0, "/gpu/0/clock/core")
+    assert_reading(readings, GPU_HOTSPOT_TEMPERATURE, 48.5, "/gpu/0/temp/hotspot")
+    assert_reading(readings, GPU_MEMORY_TOTAL, 8192.0, "/gpu/0/memory/total")
+    assert_reading(readings, MEMORY_USED, 12032.0, "/ram/used")
+    assert_reading(readings, MEMORY_TOTAL, 32768.0, None)

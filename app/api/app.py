@@ -67,9 +67,17 @@ def create_app(
         app.include_router(actions_router)
     app.mount("/css", StaticFiles(directory=WEB_ROOT / "css"), name="css")
     app.mount("/js", StaticFiles(directory=WEB_ROOT / "js"), name="js")
+    app.mount("/assets", StaticFiles(directory=WEB_ROOT / "assets"), name="assets")
 
     @app.get("/", include_in_schema=False)
     def frontend() -> FileResponse:
         return FileResponse(WEB_ROOT / "index.html")
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    def web_manifest() -> FileResponse:
+        return FileResponse(
+            WEB_ROOT / "manifest.webmanifest",
+            media_type="application/manifest+json",
+        )
 
     return app

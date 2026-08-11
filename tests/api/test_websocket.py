@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timezone
 from threading import Lock
@@ -7,6 +8,8 @@ from threading import Lock
 from fastapi.testclient import TestClient
 
 from app.api.app import create_app
+from app.api.schemas import TelemetryResponse
+from app.api.websocket import _stream_snapshots
 from app.telemetry.manager import TelemetryStatus
 from app.telemetry.models import SensorReading, TelemetrySnapshot
 
@@ -136,3 +139,25 @@ def test_websocket_supports_multiple_clients_independently() -> None:
             assert second.receive_json()["sequence"] == 31
 
     assert manager.wait_for_snapshot_calls == 0
+
+
+def test_websocket_write_race_is_treated_as_a_clean_disconnect() -> None:
+    manager = StubTelemetryManager(_snapshot(40))
+
+    class FailingSocket:
+        def __init__(self) -> None:
+            self.app = type("App", (), {"state": type("State", (), {"telemetry_manager": manager})()})()
+            self.accepted = False
+
+        async def accept(self) -> None:
+            self.accepted = True
+
+        async def send_json(self, _message: object) -> None:
+            raise RuntimeError("socket closed during send")
+
+    websocket = FailingSocket()
+
+    asyncio.run(_stream_snapshots(websocket, TelemetryResponse.from_snapshot))  # type: ignore[arg-type]
+
+    assert websocket.accepted is True
+    assert manager.get_snapshot_calls == 1

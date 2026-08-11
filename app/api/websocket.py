@@ -50,7 +50,13 @@ async def _stream_snapshots(
             snapshot = manager.get_snapshot()
             if snapshot is not None and snapshot.sequence != last_sequence:
                 response = serialize(snapshot)
-                await websocket.send_json(response.model_dump(mode="json"))
+                try:
+                    await websocket.send_json(response.model_dump(mode="json"))
+                except (WebSocketDisconnect, ConnectionError, OSError, RuntimeError):
+                    # The browser may disappear between the connection-state
+                    # check and the actual socket write (refresh, rotation, or
+                    # backend shutdown). Treat that race as a normal disconnect.
+                    return
                 last_sequence = snapshot.sequence
 
             await asyncio.sleep(POLL_INTERVAL_SECONDS)

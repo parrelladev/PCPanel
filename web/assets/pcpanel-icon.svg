@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="PCPanel">
+  <rect width="512" height="512" rx="112" fill="#0f0f0f"/>
+  <rect x="82" y="82" width="348" height="348" rx="88" fill="#151515" stroke="#2a2a2a" stroke-width="12"/>
+  <path d="M154 302V210c0-31 25-56 56-56h92c31 0 56 25 56 56v92c0 31-25 56-56 56h-92c-31 0-56-25-56-56Z" fill="none" stroke="#b7ff4a" stroke-width="28"/>
+  <path d="M218 218h76v76h-76z" fill="#b7ff4a"/>
+</svg>

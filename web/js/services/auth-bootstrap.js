@@ -1,4 +1,4 @@
-import { authenticatedFetch } from "./authenticated-fetch.js";
+import { authenticatedFetch } from "./authenticated-fetch.js?v=m9a10-1";
 import {
   getStoredToken,
   setAuthenticated,
@@ -19,7 +19,12 @@ export async function bootstrapAuthentication(dependencies = {}) {
     const response = await authenticatedFetch(
       "/api/v1/auth/status",
       {},
-      { storage, fetch: dependencies.fetch },
+      {
+        storage,
+        fetch: dependencies.fetch,
+        timeoutMs: dependencies.timeoutMs,
+        AbortController: dependencies.AbortController,
+      },
     );
     if (response.status === 401) return;
     if (!response.ok) {
