@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+import sys
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -18,17 +19,24 @@ from ..auth import (
     TokenService,
 )
 from ..telemetry.manager import TelemetryManager
+from ..telemetry.source import TelemetrySnapshotSource
 from .actions import router as actions_router
 from .routes import router
 from .websocket import router as websocket_router
 
 
-WEB_ROOT = Path(__file__).resolve().parents[2] / "web"
+WEB_ROOT = (
+    Path(sys._MEIPASS) / "web"
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parents[2] / "web"
+)
 
 
 def create_app(
-    manager: TelemetryManager,
+    manager: TelemetryManager | None = None,
     *,
+    telemetry_source: TelemetrySnapshotSource | None = None,
+    telemetry_status: Callable[[], str] | None = None,
     action_service: ActionService | None = None,
     enable_actions_api: bool = False,
     token_service: TokenService | None = None,
@@ -38,6 +46,14 @@ def create_app(
 ) -> FastAPI:
     """Create the application around shared Telemetry, Auth, and Actions services."""
 
+    source = telemetry_source or manager
+    if source is None:
+        raise ValueError("telemetry_source is required without a telemetry manager")
+    status_reader = telemetry_status
+    if status_reader is None:
+        if manager is None:
+            raise ValueError("telemetry_status is required without a telemetry manager")
+        status_reader = lambda: manager.status.value
     actions = action_service or create_action_service()
     tokens = token_service or TokenService()
     registry = device_registry or DeviceRegistry()
@@ -47,14 +63,18 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.telemetry_manager = manager
-        manager.start()
+        if manager is not None:
+            manager.start()
         try:
             yield
         finally:
-            manager.stop()
+            if manager is not None:
+                manager.stop()
 
     app = FastAPI(title="PCPanel API", lifespan=lifespan)
     app.state.telemetry_manager = manager
+    app.state.telemetry_source = source
+    app.state.telemetry_status = status_reader
     app.state.action_service = actions
     app.state.enable_actions_api = enable_actions_api
     app.state.token_service = tokens

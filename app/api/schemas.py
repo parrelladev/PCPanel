@@ -25,6 +25,7 @@ class TelemetryHealthStatus(str, Enum):
     STARTING = "starting"
     RUNNING = "running"
     FAILED = "failed"
+    UNAVAILABLE = "unavailable"
 
 
 class HealthResponse(BaseModel):

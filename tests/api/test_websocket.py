@@ -146,7 +146,11 @@ def test_websocket_write_race_is_treated_as_a_clean_disconnect() -> None:
 
     class FailingSocket:
         def __init__(self) -> None:
-            self.app = type("App", (), {"state": type("State", (), {"telemetry_manager": manager})()})()
+            self.app = type(
+                "App",
+                (),
+                {"state": type("State", (), {"telemetry_source": manager})()},
+            )()
             self.accepted = False
 
         async def accept(self) -> None:

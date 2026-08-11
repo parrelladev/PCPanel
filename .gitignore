@@ -6,6 +6,11 @@ venv/
 
 .pytest_cache/
 .coverage
+build/
+dist/
+.tools/
+task/
+.m9_acceptance_server.cmd
 
 # Local PCPanel runtime data (including data/pcpanel.db)
 data/

@@ -16,6 +16,7 @@ def test_lifespan_starts_and_stops_shared_manager() -> None:
 
     async def exercise_lifespan() -> None:
         assert application.state.telemetry_manager is manager
+        assert application.state.telemetry_source is manager
 
         async with application.router.lifespan_context(application):
             manager.start.assert_called_once_with()
@@ -25,6 +26,16 @@ def test_lifespan_starts_and_stops_shared_manager() -> None:
         manager.stop.assert_called_once_with()
 
     asyncio.run(exercise_lifespan())
+
+
+def test_app_accepts_snapshot_source_separate_from_lifecycle_manager() -> None:
+    manager = Mock(spec=TelemetryManager)
+    source = Mock()
+
+    application = create_app(manager, telemetry_source=source)
+
+    assert application.state.telemetry_manager is manager
+    assert application.state.telemetry_source is source
 
 
 def test_app_composes_one_shared_auth_runtime() -> None:

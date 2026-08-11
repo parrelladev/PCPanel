@@ -192,6 +192,13 @@ class LibreHardwareMonitorProvider(TelemetryProvider):
             return dll_path
 
         searched_paths: list[Path] = []
+        if getattr(sys, "frozen", False):
+            frozen_path = Path(sys._MEIPASS) / "lhm" / _DLL_NAME
+            searched_paths.append(frozen_path)
+            if frozen_path.is_file():
+                self._resolved_dll_path = frozen_path
+                return frozen_path
+
         for relative_path in _DEFAULT_DLL_PATHS:
             dll_path = (_PROJECT_ROOT / relative_path).resolve()
             searched_paths.append(dll_path)

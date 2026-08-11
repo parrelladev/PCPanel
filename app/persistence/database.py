@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from app.persistence.migrations import migrate
+from app.persistence.permissions import harden_user_data_directory
 
 
 class Database:
@@ -13,10 +14,17 @@ class Database:
 
     filename = "pcpanel.db"
 
-    def __init__(self, data_dir: str | Path, *, timeout: float = 5.0) -> None:
+    def __init__(
+        self,
+        data_dir: str | Path,
+        *,
+        timeout: float = 5.0,
+        restrict_permissions: bool = False,
+    ) -> None:
         self._data_dir = Path(data_dir)
         self._path = self._data_dir / self.filename
         self._timeout = timeout
+        self._restrict_permissions = restrict_permissions
 
     @property
     def path(self) -> Path:
@@ -25,6 +33,9 @@ class Database:
 
     def initialize(self) -> None:
         """Create the database and migrate its schema to the current version."""
+        self._prepare_data_dir()
+        if self._restrict_permissions:
+            harden_user_data_directory(self._data_dir)
         with self.connection() as connection:
             migrate(connection)
 

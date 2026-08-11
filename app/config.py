@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,7 @@ class AppSettings:
     port: int = 8000
     enable_actions_api: bool = False
     data_dir: Path = Path("data")
+    packaged_runtime: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -37,6 +39,8 @@ class AppSettings:
 
         if not isinstance(self.data_dir, Path):
             raise TypeError("data_dir must be a pathlib.Path")
+        if not isinstance(self.packaged_runtime, bool):
+            raise TypeError("packaged_runtime must be a bool")
 
     @classmethod
     def from_env(cls) -> AppSettings:
@@ -61,13 +65,18 @@ class AppSettings:
         port_value = os.environ.get("PCPANEL_PORT")
         port = cls._parse_int("PCPANEL_PORT", port_value, default=8000)
 
+        packaged_runtime = bool(getattr(sys, "frozen", False))
+
         enable_actions_api = cls._parse_bool(
             "PCPANEL_ENABLE_ACTIONS_API",
             os.environ.get("PCPANEL_ENABLE_ACTIONS_API"),
-            default=False,
+            default=packaged_runtime,
         )
 
-        data_dir = cls._parse_data_dir(os.environ.get("PCPANEL_DATA_DIR"))
+        data_dir = cls._parse_data_dir(
+            os.environ.get("PCPANEL_DATA_DIR"),
+            packaged_runtime=packaged_runtime,
+        )
 
         return cls(
             lhm_dll_path=dll_path,
@@ -76,11 +85,17 @@ class AppSettings:
             port=port,
             enable_actions_api=enable_actions_api,
             data_dir=data_dir,
+            packaged_runtime=packaged_runtime,
         )
 
     @staticmethod
-    def _parse_data_dir(value: str | None) -> Path:
+    def _parse_data_dir(value: str | None, *, packaged_runtime: bool = False) -> Path:
         if value is None:
+            if packaged_runtime:
+                local_app_data = os.environ.get("LOCALAPPDATA")
+                if not local_app_data or not local_app_data.strip():
+                    raise ValueError("LOCALAPPDATA is required in packaged runtime")
+                return Path(local_app_data) / "PCPanel"
             return Path("data")
 
         normalized = value.strip()

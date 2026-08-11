@@ -54,6 +54,30 @@ def test_from_env_parses_valid_values(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.data_dir == Path("data")
 
 
+def test_packaged_runtime_enables_protected_actions_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setattr("app.config.sys.frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\test\AppData\Local")
+
+    settings = AppSettings.from_env()
+
+    assert settings.packaged_runtime is True
+    assert settings.enable_actions_api is True
+
+
+def test_packaged_runtime_respects_explicit_actions_disable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setattr("app.config.sys.frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\test\AppData\Local")
+    monkeypatch.setenv("PCPANEL_ENABLE_ACTIONS_API", "false")
+
+    assert AppSettings.from_env().enable_actions_api is False
+
+
 def test_from_env_uses_default_data_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_settings_environment(monkeypatch)
 
@@ -62,6 +86,32 @@ def test_from_env_uses_default_data_dir(monkeypatch: pytest.MonkeyPatch) -> None
     assert settings.data_dir == Path("data")
     assert not settings.data_dir.is_absolute()
     assert settings.data_dir / "pcpanel.db" == Path("data/pcpanel.db")
+
+
+def test_packaged_runtime_defaults_to_local_app_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setattr("app.config.sys.frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\User\AppData\Local")
+
+    settings = AppSettings.from_env()
+
+    assert settings.packaged_runtime is True
+    assert settings.data_dir == Path(r"C:\Users\User\AppData\Local\PCPanel")
+
+
+def test_packaged_runtime_env_override_still_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _clear_settings_environment(monkeypatch)
+    monkeypatch.setattr("app.config.sys.frozen", True, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\User\AppData\Local")
+    monkeypatch.setenv("PCPANEL_DATA_DIR", r"D:\Explicit\PCPanel")
+
+    settings = AppSettings.from_env()
+
+    assert settings.data_dir == Path(r"D:\Explicit\PCPanel")
 
 
 def test_from_env_parses_custom_relative_data_dir(

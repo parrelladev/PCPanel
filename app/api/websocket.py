@@ -7,8 +7,8 @@ from typing import cast
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from ..telemetry.manager import TelemetryManager
 from ..telemetry.models import TelemetrySnapshot
+from ..telemetry.source import TelemetrySnapshotSource
 from .metric_contract import metrics_response_from_raw
 from .schemas import TelemetryResponse
 
@@ -38,16 +38,16 @@ async def _stream_snapshots(
 ) -> None:
     """Send each sequence once using a client-local sequence cursor."""
 
-    manager = cast(
-        TelemetryManager,
-        websocket.app.state.telemetry_manager,
+    source = cast(
+        TelemetrySnapshotSource,
+        websocket.app.state.telemetry_source,
     )
     last_sequence: int | None = None
     await websocket.accept()
 
     try:
         while True:
-            snapshot = manager.get_snapshot()
+            snapshot = await asyncio.to_thread(source.get_snapshot)
             if snapshot is not None and snapshot.sequence != last_sequence:
                 response = serialize(snapshot)
                 try:

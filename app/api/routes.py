@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -15,8 +16,8 @@ from ..auth import (
     PairingService,
     AuthorizedDevice,
 )
-from ..telemetry.manager import TelemetryManager
 from ..telemetry.models import SensorReading, TelemetrySnapshot
+from ..telemetry.source import TelemetrySnapshotSource
 from .metric_contract import metrics_response_from_raw
 from .dependencies import require_authorized_device
 from .schemas import (
@@ -144,15 +145,15 @@ def complete_pairing(
 
 @router.get("/health", response_model=HealthResponse)
 def get_health(request: Request) -> HealthResponse:
-    """Report API health using only the manager's in-memory lifecycle state."""
+    """Report API health without triggering telemetry collection."""
 
-    manager = cast(
-        TelemetryManager,
-        request.app.state.telemetry_manager,
+    status_reader = cast(
+        Callable[[], str],
+        request.app.state.telemetry_status,
     )
     return HealthResponse(
         status=ApiHealthStatus.OK,
-        telemetry_status=TelemetryHealthStatus(manager.status.value),
+        telemetry_status=TelemetryHealthStatus(status_reader()),
     )
 
 
@@ -195,11 +196,11 @@ def get_sensors(request: Request) -> SensorCatalogResponse:
 
 
 def _get_snapshot_or_503(request: Request) -> TelemetrySnapshot:
-    manager = cast(
-        TelemetryManager,
-        request.app.state.telemetry_manager,
+    source = cast(
+        TelemetrySnapshotSource,
+        request.app.state.telemetry_source,
     )
-    snapshot = manager.get_snapshot()
+    snapshot = source.get_snapshot()
     if snapshot is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

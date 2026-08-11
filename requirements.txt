@@ -1,4 +1,6 @@
 fastapi==0.139.2
 pythonnet==3.1.0
+Pillow==12.3.0
+pystray==0.19.5
 uvicorn==0.51.0
 websockets==16.1.1
